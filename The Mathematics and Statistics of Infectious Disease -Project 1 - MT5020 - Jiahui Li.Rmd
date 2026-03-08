@@ -1,0 +1,694 @@
+---
+title: "HA1"
+author: "Jiahui Li"
+date: "`r Sys.Date()`"
+output: html_document
+
+---
+
+# Exercise 1 – Deterministic Epidemic Model. (5 points)
+
+## Problem a
+Solve the ODE system numerically and plot i(t) and r(t) between t = 0 and t = 120.
+```{r}
+library(deSolve)
+library(ggplot2)
+
+#   Define SIR model
+SIR_model <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    ds <- -beta * s * i
+    di <- beta * s * i - gamma * i
+    dr <- gamma * i
+    return(list(c(ds, di, dr)))
+  })
+}
+
+# Initial parameters and state 
+parameters <- c(beta = 0.5, gamma = 0.2)
+R0 <- parameters["beta"] / parameters["gamma"]
+initial_state <- c(s = 0.999, i = 0.001, r = 0)
+times <- seq(0, 120, by = 1) # day by day
+
+# Compute ODE
+solution <- ode(y = initial_state, times = times, func = SIR_model, parms = parameters)
+solution <- as.data.frame(solution)
+
+# Plot
+ggplot(solution, aes(x = time)) +
+  geom_line(aes(y = i, color = "Infectious"), size = 1) +
+  geom_line(aes(y = r, color = "Recovered"), size = 1) +
+  labs(title = "SIR Model Dynamics",
+       x = "Time (days)",
+       y = "Proportion of population",
+       color = "Compartment") +
+  scale_color_manual(values = c("Infectious" = "red", "Recovered" = "blue")) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+From the graph, we can see that the infectious population spikes early on, but as the population recovers, the number of infectious individuals decreases, while the number of recovered individuals continues to grow.
+
+## Problem b
+Theory says that the final fraction getting infected \( r(\infty) \approx r(120) \) should solve the equation
+
+\[
+1 - x = e^{-R_0 x}
+\]
+
+(this is not exactly correct because we neglect the small initial fraction infectious). Solve the equation numerically for \( R_0 = 2.5 \) and compare with \( r(120) \).
+
+```{r}
+# Define final equation
+final_eq <- function(x, R0) {
+  1 - x - exp(-R0 * x)
+}
+
+# Get the answer from equation
+r_inf <- uniroot(final_eq, interval = c(0.001, 0.999), R0 = 2.5)$root
+
+cat(sprintf("Numerical value: %.3f\n", r_inf))
+cat(sprintf("r(120): %.3f\n", tail(solution$r, 1)))
+```
+The Numerical value is identical to r(120), which validate the correction.
+
+
+## Problem c
+Suppose now that a fraction r0.5 are initially immune.
+```{r}
+# Reset initial_stat and Recompute ODE
+initial_state_c <- c(s = 0.499, i = 0.001, r = 0.5)
+solution_c <- ode(y = initial_state_c, times = times, func = SIR_model, parms = parameters)
+solution_c <- as.data.frame(solution_c)
+
+# Get the proportion of newly recovered
+solution_c$newlyrecover <- solution_c$r -initial_state_c["r"]
+
+
+ggplot(solution_c, aes(x = time)) +
+  geom_line(aes(y = i, color = "Infectious"), size = 1) +
+  geom_line(aes(y = newlyrecover, color = "Newly Recovered"), size = 1) +
+  labs(title = "SIR Model with 50% Initial Immunity",
+       x = "Time (days)",
+       y = "Proportion",
+       color = "Compartment") +
+  scale_color_manual(values = c("Infectious" = "red", "Newly Recovered" = "blue")) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+From the graph, we can see that the infectious proportion remains in a low level and the newly recovered proportion increases continously in a relatively stable rate
+
+
+## Problem d
+It is known that \( \tau \), the final fraction among the initially susceptibles that get infected, solves the equation
+
+\[
+1 - \tau = e^{- R_0 (1 - r) \tau}
+\]
+
+Solve this equation numerically for our parameter choices. This quantity corresponds to \( \frac{r(\infty) - r(0)}{s(0)} \) (the final fraction initially susceptible that become infected, again neglecting the small initial fraction infectious). Compare the two solutions.
+```{r}
+
+tau_equation <- function(tau, R0, r) {
+  1 - tau - exp(-R0 * (1 - r) * tau)
+}
+
+
+tau <- uniroot(tau_equation, interval = c(0.001, 0.999), R0 = 2.5, r = 0.5)$root
+
+simulated_tau <- (tail(solution_c$r, 1) - 0.5) / initial_state_c["s"] #initial_r = 0.5
+
+cat(sprintf("Numerical tau: %.3f\n", tau))
+cat(sprintf("Simulated tau: %.3f\n", simulated_tau))
+```
+The final fraction among the initially susceptibles that get infected in the simulated process is a little bit lower than the numerical value. The discrepancy may occur because 120 days was insufficient to reach the final equilibrium state.
+
+
+# Exercise 2 – Stochastic Epidemic Model. (5 points)
+
+Consider the Reed-Frost epidemic with 1 initially infections and 3 initially susceptible individuals, and with transmission probability p. Let Z denote the number who ultimately get infected, excluding the index case.
+
+## Problem a
+(a) What are the possible outcomes of Z?
+Possible values for Z: 0,1,2,3
+
+## Problem b
+In order to compute P(Z = k) for the relevant values of k it is suitable to write out the
+possible infectious chains leading to k. Write all possible chains leading to each value k.
+
+
+| Final Size (Z) | Transmission Chain (Infection Pathway)                                                                 | Description                                                                                     |
+|----------------|-------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| Z = 0          | i → 0                                                                                                | Index case infects 0 people (outbreak dies immediately)                                         |
+| Z = 1          | i → 1 → 0                                                                                            | Index case infects 1 person who then infects 0 people                                           |
+| Z = 2          | i → 2 → 0                                                                                            | Index case infects 2 people who then infect 0 people                                            |
+| Z = 2          | i → 1 → 1 → 0                                                                                        | Index case infects 1 person who then infects 1 new person before termination                    |
+| Z = 3          | i → 3 → 0                                                                                            | Index case infects all 3 susceptible individuals simultaneously                                 |
+| Z = 3          | i → 2 → 1 → 0                                                                                        | Index case infects 2 people, one of whom infects 1 more person                                  |
+| Z = 3          | i → 1 → 2 → 0                                                                                        | Index case infects 1 person who then infects 2 new people                                       |
+| Z = 3          | i → 1 → 1 → 1 → 0                                                                                    | Sequential transmission where each new generation infects exactly 1 person before termination   |
+
+### Problem c
+
+Then compute the probability for each of the chains.
+
+| Z    | Chain Description        | Probability Formula                               | Simplified Expression                         |
+|------|--------------------------|---------------------------------------------------|-----------------------------------------------|
+| Z=0  | P(i → 0)                 | \((1 - p)^3\)                                    | \((1 - p)^3\)                                 |
+| Z=1  | P(i → 1 → 0)             | \(3 \times p \times (1 - p)^4\)                   | \(3 \times p \times (1 - p)^4\)               |
+| Z=2  | P(i → 2 → 0)             | \(3 \times p^2 \times (1 - p)^3\)                | \(3 \times p^2 \times (1 - p)^3\)            |
+|      | P(i → 1 → 1 → 0)         | \(6 \times p^2 \times (1 - p)^4\)                | \(6 \times p^2 \times (1 - p)^4\)            |
+| Z=3  | P(i → 3 → 0)             | \(p^3\)                                          | \(p^3\)                                       |
+|      | P(i → 2 → 1 → 0)         | \(3 \times p^2 \times (1 - p) \times (1 - (1 - p)^2)\) | \(3 \times p^2 \times (1 - p) \times (1 - (1 - p)^2)\) |
+|      | P(i → 1 → 2 → 0)         | \(3 \times p^3 \times (1 - p)^2\)                | \(3 \times p^3 \times (1 - p)^2\)            |
+|      | P(i → 1 → 1 → 1 → 0)     | \(6 \times p^3 \times (1 - p)^3\)                | \(6 \times p^3 \times (1 - p)^3\)            |
+
+
+
+### Problem d
+
+Finally, sum the probabilities of the different chains giving the same final size with \(p = 0.5\).
+
+| Z    | Expression                                      | Numerical Calculation for \(p = 0.5\)   |
+|------|-------------------------------------------------|-----------------------------------------|
+| Z=0  | \(P(Z = 0) = P(i → 0) = (1 - p)^3\)            | \(P(Z = 0) = (1 - 0.5)^3 = 0.125\)     |
+| Z=1  | \(P(Z = 1) = P(i → 1 → 0) = 3 \times p \times (1 - p)^4\) | \(P(Z = 1) = 3 \times 0.5 \times (1 - 0.5)^4 = 0.09375\) |
+| Z=2  | \(P(Z = 2) = P(i → 2 → 0) + P(i → 1 → 1 → 0)\) | \(P(Z = 2) = 3 \times 0.5^2 \times (1 - 0.5)^3 + 6 \times 0.5^2 \times (1 - 0.5)^4 = 0.1875\) |
+| Z=3  | \(P(Z = 3) = P(i → 3 → 0) + P(i → 2 → 1 → 0) + P(i → 1 → 2 → 0) + P(i → 1 → 1 → 1 → 0)\) | \(P(Z = 3) = 0.5^3 + 3 \times 0.5^2 \times (1 - 0.5) \times (1 - (1 - 0.5)^2) + 3 \times 0.5^3 \times (1 - 0.5)^2 + 
+6 \times 0.5^3 \times (1 - 0.5)^3 = 0.59375\) |
+
+
+
+# Exercise 3 – Stochastic Epidemic Model. (5 points)
+
+We consider a continuous-time Markovian SIR model in a population of size \( N \). Each infectious individual makes infectious contacts at rate \( \beta \) (so \( \beta/(N-1) \) per susceptible) and recovers at rate \( \gamma \). The initial condition is:  
+\[
+(S(0), I(0), R(0)) = (N-1, 1, 0)
+\]  
+We choose \( \beta \) and \( \gamma \) such that \( 1.1 < R_0 = \beta/\gamma < 4 \).  
+
+## Problem a
+
+Simulate the stochastic epidemic model for N = 500 for 1 000 times and store only the
+final epidemic size in each simulation.
+
+
+```{r}
+set.seed(100)
+N <- 500
+beta <- 0.5
+gamma <- 0.2
+R0 <- beta/gamma  # =2.5
+simulations <- 1000
+initial_infectious <- 1
+
+# Calculate theoretical τ value
+tau_star <- uniroot(function(x) 1 - x - exp(-R0*x), c(0.0001, 0.9999))$root  
+
+simulate_epidemic <- function(N,  beta, gamma, t_max=120) {
+  S <- N-1; I <- 1; R <- 0; t <- 0
+  
+  while (I > 0 && t < t_max) {
+    rates <- c(
+      infection = beta * S * I / (N-1),
+      recovery = gamma * I
+    )
+    total_rate <- sum(rates)
+    if (total_rate == 0) break # Stop if no more transitions possible
+    
+    t <- t + rexp(1, total_rate)
+    event <- sample(names(rates), 1, prob=rates/total_rate)
+    
+    switch(event,
+           "infection" = { S <- S-1; I <- I+1 },
+           "recovery" = { I <- I-1; R <- R+1 })
+  }
+  return(R)
+}
+
+final_sizes <- replicate(simulations, simulate_epidemic(N, beta, gamma))
+
+
+hist(final_sizes, 
+     main=paste("Final Sizes (N=",N,", R0=",R0,")\n"), 
+     xlab="Total Recovered", breaks=30, col="lightblue",
+     xlim=c(0, N))
+abline(v=tau_star*N, col="red", lwd=2, lty=2)  # Theoretical final size
+abline(v=0.1*N, col="darkgreen", lty=3)         # 10% threshold
+
+legend("topright", 
+       legend=c(paste("Theoretical τ*N (",round(tau_star,3),"×N)"),
+                "10% threshold"),
+       col=c("red","darkgreen"), lty=c(2,3))
+
+outbreak_prob <- mean(final_sizes >= 0.1*N)
+
+cat(sprintf("R0: %.1f\n", R0))
+cat(sprintf("Theoretical τ*: %.3f\n", tau_star))
+cat(sprintf("Major outbreak probability:\n  Simulated: %.3f\n  Theoretical: %.3f\n",
+            outbreak_prob, 1-1/R0))
+```
+
+The comparison between simulated and theoretical results indicates that, while some simulations result in small outbreaks, most show a widespread epidemic.
+
+Approximately 58.1% of simulations result in final infection numbers exceeding 10% of the population, close to the theoretical value of 60%. Although there is some slight difference, the results are broadly consistent, confirming the theoretical predictions.
+
+
+## Problem b
+Simulate the stochastic epidemic model for N = 100, 1000, 10000, now starting with 10 infectious people. Compare the simulations with the deterministic model of Exercise 1 (but with i(0) = 10/N).
+
+
+```{r}
+library(deSolve)
+library(parallel)
+
+set.seed(100)
+
+beta <- 0.5
+gamma <- 0.2
+R0 <- beta / gamma
+simulations <- 100
+initial_infectious <- 10  # Initial infected individuals (fixed to 10 for all cases)
+time_points <- seq(0, 120, by = 0.1)
+
+
+SIR_model <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    ds <- -beta * s * i
+    di <- beta * s * i - gamma * i
+    dr <- gamma * i
+    return(list(c(ds, di, dr)))
+  })
+}
+
+simulate_epidemic <- function(N, beta, gamma, initial_I, t_max = 120) {
+  s <- N - initial_I
+  i <- initial_I
+  r <- 0
+  t <- 0
+  events <- matrix(0, nrow = 1, ncol = 4)  
+  
+  while (i > 0 && t < t_max) {
+    rates <- c(
+      infection = beta * s * i / (N - 1),
+      recovery = gamma * i
+    )
+    total_rate <- sum(rates)
+    if (total_rate == 0) break
+    
+    t <- t + rexp(1, total_rate)
+    event <- sample(names(rates), 1, prob = rates / total_rate)
+    
+    switch(event,
+           "infection" = { s <- s - 1; i <- i + 1 },
+           "recovery" = { i <- i - 1; r <- r + 1 })
+    
+    # Store the new values of s, i, and r
+    events <- rbind(events, c(t, s, i, r))
+  }
+  colnames(events) <- c("time", "S", "I", "R")
+  return(events)
+}
+
+# Function to run comparison for a given N
+run_comparison <- function(N) {
+  
+  cluster <- makeCluster(detectCores() - 1) 
+  clusterExport(cluster, list("simulate_epidemic", "beta", "gamma", "initial_infectious", "time_points", "N"))
+  
+  
+  stochastic <- parLapply(cluster, 1:simulations, function(x) {
+    sim <- simulate_epidemic(N, beta, gamma, initial_infectious)
+    
+    approx(sim[, "time"], sim[, "I"], xout = time_points)$y
+  })
+  
+  stopCluster(cluster)
+  
+  stochastic <- do.call(cbind, stochastic)
+  
+  
+  parameters <- c(beta = beta, gamma = gamma, N = N)
+  initial_state <- c(s = (N - initial_infectious) / N, i = initial_infectious / N, r = 0)
+  deterministic <- ode(y = initial_state, times = time_points, func = SIR_model, parms = parameters)
+  
+  
+  stochastic_mean <- rowMeans(stochastic, na.rm = TRUE)
+  
+  
+  plot(time_points, deterministic[, "i"], type = "l", lwd = 2, col = "red",
+       main = paste("N =", N),
+       xlab = "Time (days)", ylab = "Fraction Infectious",
+       ylim = c(0, 0.3))  # Set the max y-value to 0.3
+  
+  
+  lines(time_points, stochastic_mean / N, col = "blue", lwd = 2)  # Normalize by N for stochastic
+  
+  legend("topright", 
+         legend = c("Deterministic", "Stochastic (mean)"),
+         col = c("red", "blue"), lwd = c(2, 2), lty = c(1, 1))
+}
+
+par(mfrow = c(1, 3))
+run_comparison(100)
+run_comparison(1000)
+run_comparison(10000)
+
+
+
+```
+As N increases, the stochastic model aligns more closely with the deterministic model and become more stable with fewer and fewer fluctuations.
+
+
+
+## Problem d
+
+```{r}
+library(deSolve)
+
+set.seed(123)
+N <- 1000
+true_beta <- 0.5
+true_gamma <- 0.2
+initial_infected <- 10
+
+
+SIR_model <- function(time, state, parameters) {
+  with(as.list(c(state, parameters)), {
+    ds <- -beta * s * i
+    di <- beta * s * i - gamma * i
+    dr <- gamma * i
+    return(list(c(ds, di, dr)))
+  })
+}
+
+
+simulate_epidemic <- function(N, beta, gamma, t_max=120) {
+  S <- N - initial_infected
+  I <- initial_infected
+  R <- 0
+  t <- 0
+  time_points <- c(0)
+  I_values <- c(I)
+  
+  while (I > 0 && t < t_max) {
+    rates <- c(
+      infection = beta * S * I / (N - 1),
+      recovery = gamma * I
+    )
+    total_rate <- sum(rates)
+    if (total_rate == 0) break
+    
+    t <- t + rexp(1, total_rate)
+    event <- sample(names(rates), 1, prob=rates/total_rate)
+    
+    switch(event,
+           "infection" = { S <- S - 1; I <- I + 1 },
+           "recovery" = { I <- I - 1; R <- R + 1 })
+    
+    time_points <- c(time_points, t)
+    I_values <- c(I_values, I)
+  }
+  
+  
+  data.frame(time = time_points, I = I_values/N)
+}
+
+
+obs_data <- simulate_epidemic(N, true_beta, true_gamma)
+
+
+gaussian_loglik <- function(params, obs_data) {
+  beta <- params[1]
+  gamma <- params[2]
+  
+ 
+  solution <- ode(
+    y = c(s = 1 - initial_infected/N, 
+          i = initial_infected/N, 
+          r = 0),
+    times = obs_data$time,
+    func = SIR_model,
+    parms = c(beta = beta, gamma = gamma)
+  )
+  
+  
+  pred_I <- solution[, "i"]
+  obs_I <- obs_data$I
+  
+  loglik <- sum(dnorm(obs_I, mean = pred_I, sd = 1, log = TRUE))
+  
+  
+  return(-loglik)
+}
+
+
+initial_guess <- c(beta = 0.5, gamma = 0.2)
+fit_result <- optim(initial_guess, gaussian_loglik, 
+                   obs_data = obs_data,
+                   method = "L-BFGS-B",
+                   lower = c(0.001, 0.001),
+                   upper = c(2, 1))
+
+estimated_beta <- fit_result$par[1]
+estimated_gamma <- fit_result$par[2]
+estimated_R0 <- estimated_beta / estimated_gamma
+
+
+cat("True:\n")
+cat(sprintf("beta = %.4f, gamma = %.4f, R0 = %.4f\n", 
+            true_beta, true_gamma, true_beta/true_gamma))
+cat("\nEstimate:\n")
+cat(sprintf("beta = %.4f, gamma = %.4f, R0 = %.4f\n", 
+            estimated_beta, estimated_gamma, estimated_R0))
+
+
+fitted_curve <- ode(
+  y = c(s = 1 - initial_infected/N, 
+        i = initial_infected/N, 
+        r = 0),
+  times = seq(0, max(obs_data$time), length.out = 100), 
+  func = SIR_model,
+  parms = c(beta = estimated_beta, gamma = estimated_gamma)
+)
+
+
+plot(obs_data$time, obs_data$I, type = "p", col = "blue", pch = 19, cex = 0.8,
+     xlab = "Time (days)", ylab = "Fraction Infectious (I/N)",
+     main = "Observed vs Fitted SIR Model (N=1000)",
+     ylim = c(0, max(c(obs_data$I, fitted_curve[, "i"]))))
+lines(fitted_curve[, "time"], fitted_curve[, "i"], 
+      col = "red", lwd = 2)
+legend("topright", 
+       legend = c("Observed data", 
+                  sprintf("Fitted (β=%.3f, γ=%.3f)", 
+                         estimated_beta, estimated_gamma)),
+       col = c("blue", "red"), pch = c(19, NA), lty = c(NA, 1))
+```
+
+
+
+# Exercise 4 – Reproduction Number. (5 points)
+This exercise is about calculating the effective reproduction number and was designed by Michael, University of Greifswald, for a previous version of this course.
+
+## Problem a
+
+Assume a generation time distribution of exactly 4 days, i.e. all generation times are identical to four days. Derive a direct expression for the 7-day smoothed instantaneous reproduction number estimator for this generation time.
+
+The general formula for the smoothed instantaneous reproduction number is:
+
+\[ R_{\tau}(t_i) = \frac{\sum_{k=i-\tau+1}^{i} I_k}{\sum_{k=i-\tau+1}^{i} \sum_{j=0}^{n} w_j I_{k-j}} \]
+
+With a fixed generation time of exactly 4 days, the weights become:
+- w₄ = 1 (all infections happen exactly 4 days later)
+- wⱼ = 0 for all j ≠ 4
+
+Thus, the denominator simplifies to:
+\[ \sum_{k=i-\tau+1}^{i} I_{k-4} \]
+
+For a 7-day smoothing window (τ=7), the estimator becomes:
+\[ R_7(t_i) = \frac{\sum_{k=i-6}^{i} I_k}{\sum_{k=i-6}^{i} I_{k-4}} = \frac{I_i + I_{i-1} + \cdots + I_{i-6}}{I_{i-4} + I_{i-5} + \cdots + I_{i-10}} \]
+
+## Problem b
+```{r}
+swiss_data <- read.csv("covid19-ch.csv") %>% 
+  mutate(date = as.Date(datum)) %>%
+  arrange(date) %>%
+  filter(!is.na(entries))
+
+Rt4_swiss <- function(data) {
+  y <- data$entries
+  t <- as.Date(data$datum)
+  result <- data.frame(date = t, R = rep(NA, length(y)))
+  
+  if (length(y) < 11) {
+    warning("need at least 11 days")
+    return(result)
+  }
+  
+
+  for (i in 11:length(y)) {
+    numerator <- sum(y[(i-6):i], na.rm = TRUE)     # the latest 7 days case
+    denominator <- sum(y[(i-10):(i-4)], na.rm = TRUE) # source case
+    
+    
+    result$R[i] <- ifelse(denominator > 0, numerator/denominator, NA)
+  }
+  
+  return(result)
+}
+
+rt4_results <- Rt4_swiss(swiss_data)
+
+# Plot the graph with only the blue line
+plot(common_dates, rt4_results$R[res_epiestim$R$t_end], 
+     type="l", col="blue", lwd=2,
+     xlab="Date", ylab="R(t)", 
+     main="Calculates R(t) for the Time Series of All Reported Cases",
+     ylim=range(rt4_results$R, na.rm=TRUE))
+
+abline(h=1, lty=2)  # Add reference line at R=1
+
+
+
+```
+
+## Problem c
+Modify the call to EpiEstim used in the lectures so it uses this point generation time distribution instead. How does this compare with the results from the previous two questions?
+
+```{r}
+library(EpiEstim)
+library(dplyr)
+
+#EpiEstim calculation
+gen_time <- c(0, 0, 0, 1, 0)  # Strict 4-day generation time
+res_epiestim <- estimate_R(
+  incid = data.frame(
+    dates = swiss_data$date,
+    I = swiss_data$entries
+  ),
+  method = "non_parametric_si",
+  config = make_config(list(
+    si_distr = gen_time,
+    t_start = 2:(nrow(swiss_data)-6),
+    t_end = 8:nrow(swiss_data)
+  ))
+)
+
+
+common_dates <- swiss_data$date[res_epiestim$R$t_end]
+
+plot(common_dates, rt4_results$R[res_epiestim$R$t_end], 
+     type="l", col="blue", lwd=2,
+     xlab="Date", ylab="R(t)", 
+     main="Comparison of COVID-19 Reproduction Number Estimates in Switzerland",
+     ylim=range(c(rt4_results$R, res_epiestim$R$`Mean(R)`), na.rm=TRUE))
+
+lines(common_dates, res_epiestim$R$`Mean(R)`, col="red", lwd=2)
+abline(h=1, lty=2)  
+
+legend("topright", legend=c("Rt4 Method", "EpiEstim"), 
+       col=c("blue", "red"), lty=1, lwd=2)
+
+```
+## Problem d
+Assume only a fraction ρ ∈ [0, 1] (constant over time) of cases are reported (under-reporting). This means we observe Ci = ρIi, rather than Ii. What happens to the reproduction number? Is your conclusion still valid if the fraction of reported cases ρ(t) varies over time?
+
+```{r}
+
+# Function to analyze the effect of under-reporting
+analyze_underreporting <- function(data, rho_values = seq(0.1, 1, by = 0.1)) {
+  
+  results <- list()
+  
+  for (rho in rho_values) {
+    
+    underreported_data <- data
+    underreported_data$entries <- rho * data$entries
+    
+    
+    rt_underreported <- Rt4_swiss(underreported_data)
+    
+    
+    results[[paste0("rho_", rho)]] <- list(
+      rho = rho,
+      Rt_values = rt_underreported$R,
+      mean_Rt = mean(rt_underreported$R, na.rm = TRUE),
+      median_Rt = median(rt_underreported$R, na.rm = TRUE)
+    )
+  }
+  
+  return(results)
+}
+
+
+constant_results <- analyze_underreporting(swiss_data)
+
+cat("Effect of constant under-reporting on Rt estimates:\n")
+for (rho in names(constant_results)) {
+  cat(sprintf("Reporting fraction %s: Mean Rt = %.2f, Median Rt = %.2f\n",
+              sub("rho_", "", rho), 
+              constant_results[[rho]]$mean_Rt,
+              constant_results[[rho]]$median_Rt))
+}
+
+# Function to analyze time-varying under-reporting
+analyze_time_varying_underreporting <- function(data, rho_pattern = c(0.3, 0.5, 0.8, 1.0)) {
+  
+  n <- nrow(data)
+  k <- length(rho_pattern)
+  rho_seq <- rep(rho_pattern, each = ceiling(n/k))[1:n]
+  
+  underreported_data <- data
+  underreported_data$entries <- rho_seq * data$entries
+  
+  # Calculate Rt with time-varying under-reporting
+  rt_time_varying <- Rt4_swiss(underreported_data)
+  
+  return(list(
+    rho_pattern = rho_pattern,
+    Rt_values = rt_time_varying$R,
+    mean_Rt = mean(rt_time_varying$R, na.rm = TRUE),
+    median_Rt = median(rt_time_varying$R, na.rm = TRUE),
+    original_Rt = Rt4_swiss(data)$R
+  ))
+}
+
+# Analyze time-varying under-reporting
+time_varying_results <- analyze_time_varying_underreporting(swiss_data)
+
+
+plot(swiss_data$date, time_varying_results$original_Rt, 
+     type = "l", col = "blue", lwd = 2,
+     xlab = "Date", ylab = "R(t)",
+     main = "Effect of Time-Varying Under-Reporting on Rt Estimates")
+lines(swiss_data$date, time_varying_results$Rt_values, 
+      col = "red", lwd = 2)
+legend("topright", legend = c("Original Rt", "With time-varying under-reporting"),
+       col = c("blue", "red"), lty = 1, lwd = 2)
+
+# Key conclusion
+cat("\nKey conclusions:\n")
+cat("1. With constant under-reporting (rho), the Rt estimate remains unchanged because it's a ratio of cases.\n")
+cat("2. With time-varying under-reporting (rho(t)), the Rt estimate becomes biased as the reporting fraction changes over time.\n")
+cat("   The bias depends on how rho(t) changes relative to the generation interval used in the Rt calculation.\n")
+```
+1. For constant \( \rho \)
+In the reproduction number formula, the \( \rho \) terms in the numerator and denominator cancel out, therefore \( R(t) \) remains constant. 
+  \[
+  R(t_i) = \frac{C_i}{\sum w_j C_{i-j}} = \frac{\rho I_i}{\rho \sum w_j I_{i-j}} = \frac{I_i}{\sum w_j I_{i-j}}
+  \]  
+
+\[
+R_{\tau,\text{observed}}(t_i) = \frac{\sum_{k=i-\tau+1}^{i} C_k}{\sum_{k=i-\tau+1}^{i} \sum_{j=0}^{n} w_j C_{k-j}} = \frac{\rho \sum_{k=i-\tau+1}^{i} I_k}{\rho \sum_{k=i-\tau+1}^{i} \sum_{j=0}^{n} w_j I_{k-j}} = R_\tau(t_i)
+\]
+
+2. Time-Varying Underreporting (\( \rho(t) \))
+If the reporting fraction \( \rho(t) \) varies over time (e.g., due to changes in testing strategies or surveillance efforts), then \( C_i = \rho(t_i) I_i \), and:
+\[
+R_{\text{observed}}(t_i) = \frac{C_i}{\sum_{j=0}^{n} w_j C_{i-j}} = \frac{\rho(t_i) I_i}{\sum_{j=0}^{n} w_j \rho(t_{i-j}) I_{i-j}}
+\]
+Since \( \rho(t_i) \neq \rho(t_{i-j}) \), the terms do not cancel out, and:
+\[
+R_{\text{observed}}(t_i) \neq R(t_i)
+\]
+Even with significant under-reporting (e.g., only 10% of cases detected), Rₜ estimates remain valid provided the reporting fraction (ρ) is stable over time.
