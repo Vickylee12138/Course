@@ -1,0 +1,532 @@
+---
+title: " SF2930Project1-Jiahui Li-Zhe Xu"
+author: "Jiahui Li ,  Zhe Xu"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+always_allow_html: true
+template: reporttemplate.tex
+---
+
+# 1.Data Input
+```{r}
+library(TH.data)
+data("bodyfat")
+str(bodyfat)
+??bodyfat
+
+```
+The table below summarizes the variables in the dataset and provides a brief explanation of what each variable represents.
+
+| **Variable Name**  | **Description**                                                                                  |
+|--------------------|--------------------------------------------------------------------------------------------------|
+| **age**            | The age of the subject, measured in years.                                                       |
+| **DEXfat**         | Body Fat Mass (BFM) percentage, measured using DXA (Dual-Energy X-ray Absorptiometry).           |
+| **waistcirc**      | Waist circumference, measured in centimeters.                                                    |
+| **hipcirc**        | Hip circumference, measured in centimeters.                                                      |
+| **elbowbreadth**   | Elbow breadth, measured in centimeters.                                                          |
+| **kneebreadth**    | Knee breadth, measured in centimeters.                                                           |
+| **anthro3a**       | A composite variable calculated as the sum of the logarithms of skinfolds: chin, triceps, and subcapular. |
+| **anthro3b**       | Another composite variable, typically a log-transformed product of different anthropometric measurements. |
+| **anthro3c**       | Another composite variable that may be a transformation of various body measurements.             |
+| **anthro4**        | A composite indicator derived from several body measurements, potentially for estimating body fat distribution. |
+
+
+
+
+# 2.Data preprocessing
+```{r}
+sum(is.na(bodyfat))
+
+bodyfat <- na.omit(bodyfat)
+
+summary(bodyfat)
+
+```
+# 3.Residual Analysis for Model Adequacy Checking
+```{r}
+# Constructing the full regression model including all candidate predictors for variable selection
+lm_model <- lm(DEXfat ~ 
+            age + waistcirc + hipcirc + elbowbreadth + kneebreadth + anthro3a + 
+            anthro3b + anthro3c + anthro4, data = bodyfat)
+summary(lm_model)
+# Plotting residuals
+par(mfrow = c(2, 2))
+plot(lm_model)  # This includes Residuals vs Fitted, Normal Q-Q, Scale-Location, Cook's Distance
+
+# Residual scaling: Standardized residuals vs fitted values
+std_residuals <- rstandard(lm_model)
+plot(fitted(lm_model), std_residuals, 
+     main = "Standardized Residuals vs Fitted Values", 
+     xlab = "Fitted Values", ylab = "Standardized Residuals")
+abline(h = 0, col = "red")
+
+# Check if residuals are approximately normal (Normal Q-Q plot)
+qqnorm(std_residuals)
+qqline(std_residuals, col = "red")
+
+```
+### Summary:
+
+  - **Overall Model Fit**: The residual plots suggest that the model fits well, with no major violations of the assumptions of linear regression (constant variance, normality of residuals, and no patterns in the residuals).
+
+  - **Influential Observations**: Some points have high leverage (like 73, 87,94), and these should be investigated further to see if they are outliers or if they disproportionately affect the model.
+
+  - **Normality**: The Q-Q plot suggests that the residuals are close to normally distributed, although minor deviations exist.
+  
+  - **Homoscedasticity**: The residuals show no clear signs of heteroscedasticity.
+
+# 4.Diagnostics and Handling of Outliers, Leverage, and Influential Observations
+
+## Cook’s distance
+```{r}
+# Cook's Distance
+cooksd <- cooks.distance(lm_model)
+plot(cooksd, type = "h", main = "Cook's Distance", col = "blue", 
+     ylab = "Cook's Distance", xlab = "Index")
+
+# Flagging potential influential points (usually where Cook's distance > 1)
+influential_points <- which(cooksd > 1)
+influential_points
+
+# Calculate leverage values
+leverage_values <- hatvalues(lm_model)
+
+# Check the leverage values
+summary(leverage_values)
+
+# Flagging high leverage points (typically leverage > 2*(number of predictors + 1)/number of observations)
+threshold <- 2 * (length(coef(lm_model)) / nrow(bodyfat))
+high_leverage_points <- which(leverage_values > threshold)
+high_leverage_points
+
+# Plot Residuals vs Leverage
+plot(leverage_values, rstandard(lm_model), 
+     xlab = "Leverage", 
+     ylab = "Standardized Residuals", 
+     main = "Residuals vs Leverage")
+
+# Add a red line indicating the Cook's distance threshold
+cooks_distance <- cooks.distance(lm_model)
+abline(h = c(-3, 3), col = "red", lty = 2)  # Red dashed lines at +/-3 for standardized residuals
+abline(v = threshold, col = "blue", lty = 2)  # Leverage threshold line
+
+
+
+
+
+
+```
+**Cook's distance** shows several data points with high influence, particularly around indices 40-50, suggesting that these observations may disproportionately affect the regression model and should be investigated further. However, the Cook's Distance values are generally low, suggesting that most points have a minimal impact on the regression model. A few points (with Cook's Distance around 0.30864) may be considered influential and warrant further examination. These points could be outliers or have a disproportionate effect on the model's coefficients.
+
+## Calculate CovRatio
+```{r}
+# Covariance ratio is calculated as (1 - leverage) / (1 - 1/n)
+# where n is the number of observations and p is the number of predictors
+n <- nrow(bodyfat)  # number of observations
+p <- length(coef(lm_model))  # number of predictors (including intercept)
+
+covratio_values <- (1 - leverage_values) / (1 - (1 / n))
+
+# Summary of CovRatio
+summary(covratio_values)
+
+# Plot Covariance Ratio
+plot(covratio_values, 
+     main = "Covariance Ratio", 
+     ylab = "Covariance Ratio", 
+     xlab = "Index", 
+     col = "blue", 
+     pch = 20)
+abline(h = 1, col = "red", lty = 2)  # Draw a horizontal line at CovRatio = 1
+```
+The **Covariance Ratio** values suggest that most observations have a minimal impact on the model (values close to 1). However, there are a few points with lower covariance ratios, indicating they may be more influential. These points should be carefully examined to ensure that they do not disproportionately affect the model’s estimates.
+
+# 5.Possible Transformations of the Variables to Correct Model Inadequacies
+We use methods such as Box-Cox or Box-Tidwell to transform data.
+**Box-Cox Transformation**: This transformation is applied to the response variable to stabilize variance and make it more normal. We use the boxcox() function from the MASS package.
+```{r}
+library(MASS)
+library(caret)
+
+# 1. Box-Cox Transformation on Response Variable
+# Use the boxcox() function from MASS package to find the best transformation for DEXfat
+boxcox_transformation <- boxcox(lm(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth + 
+                         kneebreadth + anthro3a + anthro3b + anthro3c + anthro4, data = bodyfat),
+                         plotit = TRUE)
+
+# Find the optimal lambda (transformation parameter)
+lambda <- boxcox_transformation$x[which.max(boxcox_transformation$y)]
+
+# Apply the Box-Cox transformation to the response variable
+bodyfat$DEXfat_transformed <- (bodyfat$DEXfat^lambda - 1) / lambda
+
+# Rebuild the model with the transformed response variable
+lm_model_boxcox <- lm(DEXfat_transformed ~ age + waistcirc + hipcirc + anthro3a + anthro3b, data = bodyfat)
+
+# Compare model fit with the original and Box-Cox transformed models
+summary(lm_model)
+summary(lm_model_boxcox)
+
+```
+We found that the optimal lambda is close to 0, so we could apply a log transformation to the response variable (DEXfat)
+
+
+**Box-Tidwell Transformation**: This transformation is applied to the independent variables to linearize relationships between predictors and the response. We can apply this using a custom transformation.
+```{r}
+# 2. Box-Tidwell Transformation on Predictor Variables
+# A simple approach to transform predictors is to log-transform predictors that are highly skewed
+# For demonstration, we will apply log transformation to all predictors
+
+bodyfat$log_age <- log(bodyfat$age)
+bodyfat$log_waistcirc <- log(bodyfat$waistcirc)
+bodyfat$log_hipcirc <- log(bodyfat$hipcirc)
+bodyfat$log_elbowbreadth <- log(bodyfat$elbowbreadth)
+bodyfat$log_kneebreadth <- log(bodyfat$kneebreadth)
+bodyfat$log_anthro3a <- log(bodyfat$anthro3a)
+bodyfat$log_anthro3b <- log(bodyfat$anthro3b)
+bodyfat$log_anthro3c <- log(bodyfat$anthro3c)
+bodyfat$log_anthro4 <- log(bodyfat$anthro4)
+
+
+# Rebuild the model with the log-transformed predictors
+lm_model_box_tidwell <- lm(DEXfat ~ log_age + log_waistcirc + log_hipcirc + log_elbowbreadth + log_kneebreadth + log_anthro3a + log_anthro3b + log_anthro3c + log_anthro4, data = bodyfat)
+
+# Compare model fit for Box-Tidwell transformation
+summary(lm_model_box_tidwell)
+
+```
+
+
+1.**Performance Comparison (RSE, R-squared, Adjusted R-squared)**:
+
+   - The **Box-Cox transformed model** has the best performance, with the lowest **Residual Standard Error** (0.2127), the highest **R-squared** (0.9329), and the highest **Adjusted R-squared** (0.9277), suggesting it fits the data well and provides accurate predictions.
+   
+   - The **log-transformed model** shows the worst performance in terms of **RSE** (3.419) and **Adjusted R-squared** (0.9041), which indicates that the log transformation did not improve the model significantly compared to the other two.
+   
+   
+2.**Transformation Impact**:
+   - The **Box-Cox transformation** significantly improved the model's fit, reducing the **Residual Standard Error** and increasing the **R-squared** and **Adjusted R-squared**, suggesting that it was effective in addressing issues like non-normality or heteroscedasticity in the original model.
+   
+   - The **log-transformed model** did not show a significant improvement, likely due to the nature of the variables and the fact that log transformations are not always the best for all datasets.
+
+```{r}
+par(mfrow = c(2, 2))  # Set up a 2*2 plot layout
+plot(lm_model_boxcox)  # Plot residuals for Box-Cox model
+plot(lm_model_box_tidwell)
+```
+The **Box-Cox transformed model** has the best performance, with the most straight line in the Plot Normal Q-Q which can help normalize residuals and the most horizonal red line in the Plot Scale-Location which can stabilize variance.
+
+# 6.Multicollinearity Diagnostics and Treatments
+```{r}
+# Check VIF for multicollinearity
+library(car)
+vif(lm_model)
+```
+Variables **anthro3a, anthro3b and anthro4 (greater than 10)** show significant multicollinearity, which may make the model unstable. High multicollinearity can inflate the standard errors of the regression coefficients, reducing the reliability of the individual predictor estimates.Since anthro4 has the highest VIF value, we remove it first.
+
+We chose to remove **anthro4**
+```{r}
+lm_model_reduced <- lm(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth + kneebreadth + anthro3a + anthro3b + anthro3c , data = bodyfat)
+vif(lm_model_reduced)
+```
+Trying to remove anthro3b,since the highest VIF value.
+```{r}
+lm_model_reduced_2 <- lm(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth + kneebreadth + anthro3a + anthro3c , data = bodyfat)
+vif(lm_model_reduced_2)
+summary(lm_model_reduced_2)
+```
+Trying to remove anthro3a
+```{r}
+lm_model_reduced_3 <- lm(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth + kneebreadth + anthro3b + anthro3c , data = bodyfat)
+vif(lm_model_reduced_3)
+summary(lm_model_reduced_3)
+```
+Trying to remove anthro3c
+```{r}
+lm_model_reduced_4 <- lm(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth + kneebreadth + anthro3a + anthro3b , data = bodyfat)
+vif(lm_model_reduced_4)
+summary(lm_model_reduced_4)
+```
+We found that after removing **anthro4** (due to its extremely high VIF value), either **anthro3a** or **anthro3b** must be removed to ensure that the VIF values of the remaining variables remain at a low level.After that, although some variables have slightly higher VIF values, they are crucial for the model's predictive ability, and multicollinearity will not significantly affect the results, so they can be temporarily retained.We will continue variable selection in the next module.
+
+# 7.Variable Selection Using Different Methods
+```{r}
+# Forward and backward stepwise regression
+# Defines an intercept-only model
+lm_only <- lm(DEXfat ~ 1, data = bodyfat)
+# Defines a model with all predictors
+all_predictors <- lm(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth + kneebreadth 
+                     + anthro3a + anthro3b + anthro3c, data = bodyfat)
+# Performs forward stepwise regression
+forward <- step(lm_only, direction = 'forward', scope = formula(all_predictors), trace = 0)
+# Views results of forward stepwise regression
+forward$anova 
+# Views final model
+summary(forward)
+
+# Defines an intercept-only model
+lm_only <- lm(DEXfat ~ 1, data = bodyfat)
+# Defines a model with all predictors
+all_predictors <- lm(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth + kneebreadth 
+                     + anthro3a + anthro3b + anthro3c, data = bodyfat)
+# Performs backward stepwise regression
+backward <- step(all_predictors, direction = 'backward', scope = formula(all_predictors), trace = 0)
+# Views results of backward stepwise regression
+backward$anova 
+# Views final model
+summary(backward)
+
+# All possible regressions (combinations of variables)
+library(leaps)
+all_regression <- regsubsets(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth 
+                             + kneebreadth + anthro3a + anthro3b + anthro3c, 
+                             data = bodyfat, nbest = 1)
+summary(all_regression)
+
+
+# Perform Best Subset Regression
+best_subset_model <- regsubsets(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth 
+                             + kneebreadth + anthro3a +  anthro3b + anthro3c, 
+                                data = bodyfat, 
+                                nvmax = 8)  # Set maximum number of predictors
+# Get summary of the model
+best_model_summary <- summary(best_subset_model)
+
+# Select the best model based on different criteria
+best_adjr2_model <- which.max(best_model_summary$adjr2)   # Model with max Adjusted R²
+best_cp_model <- which.min(best_model_summary$cp)         # Model with min Cp
+best_bic_model <- which.min(best_model_summary$bic)       # Model with min BIC
+print(best_model_summary$which[best_adjr2_model, ])
+print(best_model_summary$which[best_cp_model, ])
+print(best_model_summary$which[best_bic_model, ])
+```
+- The exhaustive search suggests that the best combination of predictors for predicting **DEXfat** includes **waistcirc**, **hipcirc**, **kneebreadth** and **anthro3b** This matches the linear regression model we already ran, which also included **waistcirc**, **hipcirc**, **anthro3b**.
+- **age**, **anthro3a** , **anthro3c** and **anthro4** were not selected as part of the best model based on this selection procedure, which may suggest they do not significantly improve the prediction of **DEXfat** in this case.
+
+```{r}
+# Cross-validation to evaluate the model refined by forward and backward stepwise regression 
+library(caret)
+train_control <- trainControl(method = "cv", number = 10)
+cv_model <- train(DEXfat ~ waistcirc + hipcirc + kneebreadth + anthro3b, 
+                    data = bodyfat, 
+                    method = "lm", 
+                    trControl = train_control)
+# Show the cross-validation results
+cv_model$results
+
+final_model <- lm(DEXfat ~ waistcirc + hipcirc + kneebreadth + anthro3b, data = bodyfat)
+summary(final_model)
+R_squared <- summary(final_model)$r.squared
+adjusted_R_squared <- summary(final_model)$adj.r.squared
+RMSE <- sqrt(mean(residuals(final_model)^2))
+MAE <- mean(abs(residuals(final_model)))
+AIC_value <- AIC(final_model)
+BIC_value <- BIC(final_model)
+F_value <- summary(final_model)$fstatistic[1]
+df1 <- summary(final_model)$fstatistic[2]  # Numerator degrees of freedom
+df2 <- summary(final_model)$fstatistic[3]  # Denominator degrees of freedom
+p_value <- 1 - pf(F_value, df1 = df1, df2 = df2)
+
+cat("R²: ", R_squared, "\n")
+cat("Adjusted R²: ", adjusted_R_squared, "\n")
+cat("RMSE: ", RMSE, "\n")
+cat("MAE: ", MAE, "\n")
+cat("AIC: ", AIC_value, "\n")
+cat("BIC: ", BIC_value, "\n")
+cat("F-statistic: ", F_value, " p-value: ", p_value, "\n")
+
+RSS_full <- sum(residuals(lm_model)^2)
+RSS_sub <- sum(residuals(final_model)^2)
+
+n <- nrow(bodyfat)
+p_full <- length(coef(lm_model)) - 1
+p_sub <- length(coef(final_model)) - 1
+
+MSE_full <- RSS_full / (n - p_full - 1)
+
+Cp_final <- (RSS_sub / MSE_full) - (n - 2 * p_sub)
+
+cat("Mallows' Cp for final_model:", Cp_final, "\n")
+
+```
+### **Key Insights from the Results:**
+- **Model Fit**: The model explains **92.07%** of the variance in the data (**R² = 0.9207**), which is a strong fit. The **Adjusted R²** of **0.9159** suggests that the model is not overly complex and that the predictors used are important.
+  
+- **Cross-Validation**: The **RMSE** of **3.255** and **MAE** of **2.546** are reasonable for prediction error. The **R² of **0.952** from cross-validation is a good indicator that the model generalizes well to unseen data.
+
+- **Significance**: The extremely low **p-value (< 2.2e-16)** from the F-test indicates that the predictors significantly explain the dependent variable (**DEXfat**).
+
+- **Model Complexity**: The inclusion of the intercept is noted, and AIC/BIC values suggest a balanced model fit with good predictive performance.
+
+- **Cp(-0.1093)** is less than p(3), which indicates that the model has small bias.
+
+#####################
+#####################
+## Set Up Cross-Validation (CV) for Model Evaluation
+```{r}
+library(caret)
+library(leaps)
+
+# Define cross-validation
+train_control <- trainControl(method = "cv", number = 10)  # 10-fold CV
+```
+## All Possible Regressions (Exhaustive Search)
+```{r}
+# Perform all possible regressions
+all_regression <- regsubsets(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth + kneebreadth + anthro3a + anthro3b + anthro3c + anthro4, 
+                             data = bodyfat, nbest = 1)
+
+# Summary of all possible regressions
+summary(all_regression)
+
+```
+- The function identified the **best subsets of predictors** for predicting **DEXfat**. In general, it looks like **hipcirc** , **waistcirc** and **anthro3b** are likely the most important predictors in most models, as they appear in nearly all the best subsets.
+- **All possible subsets** were evaluated, which allows for determining whether a more complex model (with more predictors) actually improves model performance or not.
+
+## Forward and Backward Stepwise Selection
+We will use forward selection and backward elimination for variable selection based on AIC, BIC, and Adjusted R².
+```{r}
+# Forward selection
+step_forward <- step(lm(DEXfat ~ 1, data = bodyfat), 
+                     direction = "forward", 
+                     scope = ~ age + waistcirc + hipcirc + elbowbreadth + kneebreadth + anthro3a + anthro3b + anthro3c + anthro4, 
+                     data = bodyfat)
+
+# Summary of forward selection model
+summary(step_forward)
+
+# Model evaluation using cross-validation (MSE, Adjusted R²)
+cv_forward <- train(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth + kneebreadth + anthro3a + anthro3b + anthro3c + anthro4, 
+                    data = bodyfat, 
+                    method = "lm", 
+                    trControl = train_control)
+
+# Print cross-validation results
+print(cv_forward)
+
+# Calculate AIC, BIC, and Mallows' Cp for forward selection model
+aic_value <- AIC(step_forward)
+cat("AIC: ", aic_value, "\n")
+bic_value <- BIC(step_forward)
+cat("BIC: ", bic_value, "\n")
+
+# Get the residual sum of squares (RSS) for the stepwise model
+RSS_step_forward <- sum(residuals(step_forward)^2)
+
+# Get the number of predictors (p) in the stepwise model
+p_step_forward <- length(coef(step_forward)) - 1  # excluding the intercept
+
+# Calculate the Mean Squared Error (MSE) for the full model
+RSS_full <- sum(residuals(lm_model)^2)
+p_full <- length(coef(lm_model)) - 1  # excluding the intercept
+MSE_full <- RSS_full / (n - p_full - 1)
+
+# Calculate Mallows' Cp for the stepwise model
+Cp_step_forward <- (RSS_step_forward / MSE_full) - (n - 2 * p_step_forward)
+
+# Output Mallows' Cp
+cat("Cp_step_forward: ", Cp_step_forward, "\n")
+```
+
+```{r}
+# Backward elimination
+step_backward <- step(lm(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth + kneebreadth + anthro3a + anthro3b + anthro3c + anthro4, data = bodyfat), 
+                      direction = "backward")
+
+# Summary of the model selected by backward elimination
+summary(step_backward)
+# Model evaluation using cross-validation (MSE, Adjusted R²)
+cv_backward <- train(DEXfat ~ age + waistcirc + hipcirc + elbowbreadth + kneebreadth + anthro3a + anthro3b + anthro3c + anthro4, 
+                     data = bodyfat, 
+                     method = "lm", 
+                     trControl = train_control)
+
+# Print cross-validation results for the backward elimination model
+print(cv_backward)
+
+# Calculate AIC, BIC, and Mallows' Cp for the backward elimination model
+aic_value <- AIC(step_backward)
+cat("AIC: ", aic_value, "\n")
+bic_value <- BIC(step_backward)
+cat("BIC: ", bic_value, "\n")
+
+# Get the residual sum of squares (RSS) for the backward elimination model
+RSS_step_backward <- sum(residuals(step_backward)^2)
+
+# Get the number of predictors (p) in the backward elimination model
+p_step_backward <- length(coef(step_backward)) - 1  # excluding the intercept
+
+# Calculate the Mean Squared Error (MSE) for the full model
+RSS_full <- sum(residuals(lm_model)^2)
+p_full <- length(coef(lm_model)) - 1  # excluding the intercept
+MSE_full <- RSS_full / (n - p_full - 1)
+
+# Calculate Mallows' Cp for the backward elimination model
+Cp_step_backward <- (RSS_step_backward / MSE_full) - (n - 2 * p_step_backward)
+
+# Output Mallows' Cp
+cat("Cp_step_backward: ", Cp_step_backward, "\n")
+```
+#这里数字改一下
+
+##################
+##################
+
+
+# 8.Computer-Intensive Procedures for Model Assessment
+We chose the model (formula = DEXfat ~ waistcirc + hipcirc + kneebreadth + anthro3b, data = bodyfat) to assess the performance
+```{r}
+
+library(boot)
+# Bootstrap Confidence Interval Calculation for Model Coefficients
+set.seed(123)
+boot_model <- boot(data = bodyfat, 
+                   statistic = function(data, indices) {
+                     data <- data[indices, ]  # Bootstrap resampling
+                     model <- lm(DEXfat ~ waistcirc + hipcirc + kneebreadth + anthro3b
+                                 , data = data)  # Fit final model
+                     return(coef(model))  # Return model coefficients
+                   },
+                   R = 1000)  # Perform 1000 bootstrap iterations
+
+# Confidence intervals for the regression coefficients (percentile method)
+boot_ci <- boot.ci(boot_model, type = "perc")
+
+# Print the bootstrap confidence intervals
+coef_names <- names(coef(final_model))
+
+boot_ci_list <- lapply(1:length(coef_names), function(i) {
+  boot.ci(boot_model, type = "perc", index = i) 
+})
+
+for (i in 1:length(coef_names)) {
+  cat(coef_names[i], " 95% CI: ", boot_ci_list[[i]]$perc[4:5], "\n")
+}
+
+#Bootstrap residuals
+final_model <- lm(DEXfat ~ waistcirc + hipcirc + kneebreadth + anthro3b, data = bodyfat)
+# Get the residuals and fitted values
+residuals_original <- residuals(final_model)
+fitted_values_original <- fitted(final_model)
+# Set the number of bootstrap iterations
+R <- 1000
+boot_coefs <- matrix(NA, nrow = R, ncol = length(coef(final_model)))
+set.seed(123)
+for (i in 1:R) {
+  resampled_residuals <- sample(residuals_original, replace = TRUE)
+  new_response <- fitted_values_original + resampled_residuals
+  boot_model <- lm(new_response ~ waistcirc + hipcirc + kneebreadth + anthro3b, data = bodyfat)
+  boot_coefs[i, ] <- coef(boot_model)
+}
+
+boot_ci <- apply(boot_coefs, 2, function(x) quantile(x, probs = c(0.025, 0.975)))
+boot_ci_df <- data.frame(Variable = names(coef(final_model)),
+                         CI_2.5 = boot_ci[1, ], 
+                         CI_97.5 = boot_ci[2, ])
+print(boot_ci_df)
+
+```
+The bootstrap confidence interval does not include 0, which means that the regression coefficient has statistical significance.The confidence interval range in the first Method may be wider due to the larger variability in the data when resampling the entire sample directly.
+
