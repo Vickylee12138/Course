@@ -1,0 +1,290 @@
+---
+title: "Jiahui Li_computer assignment 3"
+output:
+  pdf_document:
+    latex_engine: xelatex
+date: "2024-10-21"
+---
+# Previous_Function
+```{r}
+source("funktioner.R")
+#Likelihood function
+L <- function(theta,y,X) {
+  p <- 1/(1 + exp(-X %*% theta))  # logistic function
+  likelihood <- prod(dbinom(y, size = 1, prob = p, log = FALSE)) # likelihood 
+  return(likelihood)
+}
+
+#Log-likelihood function
+l <- function(theta,y,X){
+  p <- 1/(1+exp(-X %*% theta))
+  log_likelihood <- sum((dbinom(y,size=1,prob=p,log= TRUE)))
+  return(log_likelihood)
+}
+
+#Score function
+S <- function(theta,y,X){
+  p <- 1/(1+exp(-X %*% theta))
+  score <- t(X) %*% (y-p)
+  return(score)
+}
+
+#Fisher Information I function
+I <- function(theta,y,X){
+  p <- 1/(1+exp(-X %*% theta))
+  v <- p * (1-p)
+  D = diag(as.vector(v))
+  fisher_info = t(X) %*% D %*% X
+  return(fisher_info)
+}
+
+#Newton-Raphson
+NR <- function(theta0, niter, y, X, tol = 0.001) {
+  theta <- theta0  # Initialize parameters
+  theta_history <- matrix(NA, niter + 1, length(theta0))  # Store parameter values for each iteration
+  theta_history[1, ] <- theta0  # Store the initial value in history
+  
+  for (i in 1:niter) {
+    score <- S(theta, y, X)  # Compute the score function
+    fisher_info <- I(theta, y, X)  # Compute the Fisher Information matrix
+    theta_new <- theta + solve(fisher_info) %*% score  # Update the parameters
+    
+    # Store the new parameter estimates
+    theta_history[i + 1, ] <- theta_new
+    
+    # Compare the difference between new and old parameter values
+    if (all(abs(theta_new - theta) < tol)) {
+      cat("Converged after", i, "iterations\n")
+      return(list(final_theta = theta_new, theta_history = theta_history[1:(i + 1), ]))
+    }
+    
+    # Update theta with the new estimates and continue iterating
+    theta <- theta_new
+  }
+  
+  cat("Did not fully converge after", niter, "iterations\n")
+  return(list(final_theta = theta, theta_history = theta_history))
+}
+```
+
+# Data prepration
+```{r}
+load("proj_data.Rdata")
+modell <- glm(Resultat ~ Alder + Kon + Utbildare, 
+              data = data_individ,
+              family = "binomial")
+summary(modell)
+```
+# 1.Task1
+## compute AIC
+```{r}
+model_matrix <- model.matrix(Resultat ~ Alder + Kon + Utbildare, data = data_individ)
+theta0 <- rep(0, ncol(model_matrix))  
+NR_result <- NR(theta0 = theta0, niter = 100, y = data_individ$Resultat, X = model_matrix)
+theta_estimate <- NR_result$final_theta
+
+# compute loglikelihood
+log_likelihood_value <- l(theta_estimate, y = data_individ$Resultat, X = model_matrix)
+
+# the number of parameter as k
+k <- length(theta_estimate)
+
+# compute AIC
+AIC_manual <- 2 * k - 2 * log_likelihood_value
+AIC_manual
+
+```
+### Summary
+·  Manually computed AIC value **(1268.829)** matches the AIC value **(1268.8)** from glm(), meaning you correctly understood and implemented the log-likelihood, parameter estimation, and AIC calculation for logistic regression.
+·  The AIC value of 1268.8 indicates that the model fits the data adequately while considering model complexity.
+·  AIC can be used to compare different models. It does not represent the absolute quality of the model but allows for the comparison between models — the model with the lowest AIC is generally the best fit for the data.
+
+## compute leave-one-out cross validation 
+```{r}
+n <- nrow(data_individ)
+log_likelihood_loo <- numeric(n)  # to store the log_likelihood of each LOOCV
+
+# modify NR function to avoid continuously outout the converge result
+NR1 <- function(theta0, niter, y, X, tol = 0.001) {
+  theta <- theta0  # Initialize parameters
+  theta_history <- matrix(NA, niter + 1, length(theta0))  # Store parameter values for each iteration
+  theta_history[1, ] <- theta0  # Store the initial value in history
+  
+  for (i in 1:niter) {
+    score <- S(theta, y, X)  # Compute the score function
+    fisher_info <- I(theta, y, X)  # Compute the Fisher Information matrix
+    theta_new <- theta + solve(fisher_info) %*% score  # Update the parameters
+    
+    # Store the new parameter estimates
+    theta_history[i + 1, ] <- theta_new
+    
+    # Compare the difference between new and old parameter values
+    if (all(abs(theta_new - theta) < tol)) {
+      #cat("Converged after", i, "iterations\n")
+      return(list(final_theta = theta_new, theta_history = theta_history[1:(i + 1), ]))
+    }
+    
+    # Update theta with the new estimates and continue iterating
+    theta <- theta_new
+  }
+  
+  cat("Did not fully converge after", niter, "iterations\n")
+  return(list(final_theta = theta, theta_history = theta_history))
+}
+for (i in 1:n) {
+  # leave the ith sample
+  X_train <- model_matrix[-i, ]
+  y_train <- data_individ$Resultat[-i]
+  
+  # use Newton-Raphson to estimate parameter
+  initial_theta = rep(0, ncol(model_matrix))  
+  NR_result <- NR1(theta0 = initial_theta, niter = 100, y = y_train, X = X_train)
+  
+  # drop the ith log_likelihood
+  X_test <- model_matrix[i, , drop = FALSE]
+  y_test <- data_individ$Resultat[i]
+  
+  log_likelihood_loo[i] <- l(NR_result$final_theta, y_test, X_test)
+}
+
+# compute mean LOOCV  likelihood
+mean_log_likelihood_loo <- mean(log_likelihood_loo)
+mean_log_likelihood_loo
+
+```
+### Model Performance:
+·  Mean log-likelihood of -0.6344648 suggests that the model’s predictions are reasonably aligned with the observed outcomes on average, but there is still room for improvement.
+·  Since the value is negative, it suggests that the predicted probabilities are somewhat far from the actual outcomes on average, which is typical for log-likelihood values in logistic regression.
+·  A less negative value (closer to zero) would indicate that the model is better at fitting the data, while a more negative value suggests that the model might struggle with accurate predictions.
+
+# 2.Task2
+```{r}
+post <- function(theta, y, X) {
+  # Calculate the logistic probabilities
+  p <- 1 / (1 + exp(-X %*% theta))
+  # set log_likelihood
+  log_likelihood <- sum((dbinom(y,size=1,prob=p,log= TRUE)))
+  
+  # Calculate the likelihood
+  likelihood <- prod(ifelse(y, p, 1 - p))
+  
+  # Set the prior
+  prior <- dnorm(theta, mean = 0, sd = 10, log = FALSE)  #  N(0, 100)
+  prior <- prod(prior) 
+  prior <- log(prior) # set log
+  
+  # Calculate the posterior 
+  posterior <- log_likelihood + prior
+  
+  return(posterior)
+}
+
+# Test the function
+Xtest <- cbind(1, 18:25, rep(c(0, 1), 4), rep(c(1, 1, 0, 0), 2))
+ytest <- c(rep(TRUE, 4), rep(FALSE, 4))
+
+# Compare the posterior ratio
+ratio <- exp(post(c(260, -10, 10, -20), ytest, Xtest) - post(c(270, -15, 15, -25), ytest, Xtest))
+cat("Test Ratio: [", ratio, "]\n")
+
+
+# For real application
+y <- matrix(data_individ$Resultat, ncol = 1)
+X <- model.matrix(Resultat ~ Alder + Kon + Utbildare, 
+                  data = data_individ)
+post_result_1 <- post(c(0, -0.1, 0.1, -0.2), y, X)
+post_result_2 <- post(c(0.1, -0.15, 0.15, -0.25), y, X)
+ratio <- exp(post_result_1- post_result_2)
+cat("Real Ratio :[", ratio, "]\n")
+
+```
+### Summary
+  - The ratio of 5.523322e+167 indicates that the first theta combination is more consistent with the data.
+  
+# 3.Task3
+```{r}
+metropolis_hastings <- function(start_theta, y, X, n_iter = 10000, sigma) {
+  samples <- matrix(NA, nrow = n_iter, ncol = length(start_theta))
+  samples[1, ] <- start_theta
+  current_post <- post(start_theta, y, X)
+  
+  for (i in 2:n_iter) {
+    theta_star <- samples[i - 1, ] + rnorm(length(start_theta)) * sigma
+    proposal_post <- post(theta_star, y, X)
+    
+    # Calculate the acceptance ratio using log form
+    log_acceptance_ratio <- proposal_post - current_post
+    
+    if (log_acceptance_ratio > log(runif(1))) {
+      samples[i, ] <- theta_star
+      current_post <- proposal_post
+    } else {
+      samples[i, ] <- samples[i - 1, ]
+    }
+  }
+  
+  return(samples)
+}
+
+# Use ML estimate as starting value (assuming 0)
+start_theta <- c(0, 0, 0, 0)
+# Use standard errors as step size (assuming 0.1)
+sigma <- c(0.1, 0.1, 0.1, 0.1)
+# Sample 10000 theta values
+samples <- metropolis_hastings(start_theta, ytest, Xtest, n_iter = 10000, sigma = sigma)
+
+# Plot the trace of each parameter
+parameter_names <- c("Intercept", "Alder", "Kon", "Utbildare")
+par(mfrow = c(2, 2))
+for (j in 1:ncol(samples)) {
+  plot(samples[, j], type = "l", main = paste("Trace plot for", parameter_names[j]), xlab = "Iteration", ylab = parameter_names[j])
+}
+
+
+```
+### Summary of Interpretation
+  - The trace plots indicate that the chains are roughly converging, with each parameter fluctuating within a certain range.
+  - **Alder** seems to converge well with stable mixing.
+  - **Kon** and **Utbildare** may need better tuning, as they show signs of slow mixing, suggesting that they may not have fully converged.
+```{r}
+# Plot the posterior histogram of each parameter
+par(mfrow = c(2, 2))
+for (j in 1:ncol(samples)) {
+  hist(samples[, j], breaks = 30, main = paste("Posterior of", parameter_names[j]), xlab = parameter_names[j], probability = TRUE)
+}
+```
+### Summary
+  - **Intercept** and **Alder** appear to have more well-behaved, symmetric posterior distributions, with Alder having a more constrained effect that is centered around slightly negative values.
+  - **Kon** and **Utbildare** show more variability and uncertainty, with their distributions being wider and less regular. This implies that the data does not provide as much precision or confidence about the values of these parameters.
+  - The **Intercept** has a positive peak, whereas **Alder** shows a slight negative trend.
+  - The variability in the posterior of **Kon** and **Utbildare** suggests that their effects are not strongly determined, and the uncertainty could indicate the need for more data or better-tuned sampling to achieve clearer estimates.
+```{r}
+# Calculate posterior means 
+posterior_means <- colMeans(samples)
+posterior_intervals <- apply(samples, 2, quantile, probs = c(0.025, 0.975))
+names(posterior_means) <- c("Intercept", "Alder", "Kon", "Utbildare")
+posterior_means
+```
+### **Summary**:
+- The **posterior means** indicate the direction and relative strength of the relationships:
+  - **Intercept** suggests a baseline positive value for the response.
+  - **Alder** and **Kon** have small negative effects.
+  - **Utbildare** has a positive effect that is larger than Alder and Kon. 
+```{r}
+# 95% credible intervals
+rownames(posterior_intervals) <- c("2.5%", "97.5%")
+colnames(posterior_intervals) <- c("Intercept", "Alder", "Kon", "Utbildare")
+posterior_intervals
+
+# Predict the probability of a future test
+x_star <- c(1, 23, 1, 0)  # Take my example: a 25-year-old, gender = 1, education = 0
+p_star <- colMeans(1 / (1 + exp(-samples %*% x_star)))
+cat("p_star :[", p_star, "]\n")
+```
+### Summary
+  - The **credible intervals** (2.5% to 97.5% quantiles) provide information about the range of possible values for each parameter:
+  - All credible intervals for **Alder**, **Kon**, and **Utbildare** include zero, which implies that these effects may not be statistically significant and there is substantial uncertainty about their true impact.
+  - The wide intervals, particularly for **Kon** and **Utbildare**, indicate high variability and uncertainty in the estimation.
+  -The predicted probability **p_star** is 0.3587, which means that for the given individual, the probability of achieving the positive outcome is approximately 35.87%. This suggests that, based on the model and data, there is a moderate likelihood of a positive outcome for this individual.
+
+

@@ -1,0 +1,341 @@
+---
+title: "Jiahui Li_computer assignment 2"
+output:
+  pdf_document:
+    latex_engine: xelatex
+date: "2024-10-05"
+---
+
+# Previous_Function
+```{r}
+source("funktioner.R")
+#Likelihood function
+L <- function(theta,y,X) {
+  p <- 1/(1 + exp(-X %*% theta))  # logistic function
+  likelihood <- prod(dbinom(y, size = 1, prob = p, log = FALSE)) # likelihood 
+  return(likelihood)
+}
+
+#Log-likelihood function
+l <- function(theta,y,X){
+  p <- 1/(1+exp(-X %*% theta))
+  log_likelihood <- sum((dbinom(y,size=1,prob=p,log= TRUE)))
+  return(log_likelihood)
+}
+
+#Score function
+S <- function(theta,y,X){
+  p <- 1/(1+exp(-X %*% theta))
+  score <- t(X) %*% (y-p)
+  return(score)
+}
+
+#Fisher Information I function
+I <- function(theta,y,X){
+  p <- 1/(1+exp(-X %*% theta))
+  v <- p * (1-p)
+  D = diag(as.vector(v))
+  fisher_info = t(X) %*% D %*% X
+  return(fisher_info)
+}
+
+#Newton-Raphson
+NR <- function(theta0, niter, y, X, tol = 0.001) {
+  theta <- theta0  # Initialize parameters
+  theta_history <- matrix(NA, niter + 1, length(theta0))  # Store parameter values for each iteration
+  theta_history[1, ] <- theta0  # Store the initial value in history
+  
+  for (i in 1:niter) {
+    score <- S(theta, y, X)  # Compute the score function
+    fisher_info <- I(theta, y, X)  # Compute the Fisher Information matrix
+    theta_new <- theta + solve(fisher_info) %*% score  # Update the parameters
+    
+    # Store the new parameter estimates
+    theta_history[i + 1, ] <- theta_new
+    
+    # Compare the difference between new and old parameter values
+    if (all(abs(theta_new - theta) < tol)) {
+      cat("Converged after", i, "iterations\n")
+      return(list(final_theta = theta_new, theta_history = theta_history[1:(i + 1), ]))
+    }
+    
+    # Update theta with the new estimates and continue iterating
+    theta <- theta_new
+  }
+  
+  cat("Did not fully converge after", niter, "iterations\n")
+  return(list(final_theta = theta, theta_history = theta_history))
+}
+```
+
+# Data prepration
+```{r}
+load("proj_data.Rdata")
+modell <- glm(Resultat ~ Alder + Kon + Utbildare, 
+              data = data_individ,
+              family = "binomial")
+summary(modell)
+```
+```{r}
+y <- matrix(data_individ$Resultat, ncol = 1)
+X <- model.matrix(Resultat ~ Alder + Kon + Utbildare, 
+                  data = data_individ)
+```
+
+# 1.Task1
+```{r}
+# Initial parameter guess
+theta0 <- c(0,0,0,0) 
+
+# Run the Newton-Raphson method to estimate parameters
+theta_estimates <- NR(theta0, niter = 4, y = y, X = X) #actually niter=4 in the assignment1
+
+# Extract the final estimated parameters
+theta_estimates <- theta_estimates$final_theta
+theta_estimates <- as.numeric(theta_estimates)
+
+# Compute the Fisher Information matrix at the estimated parameters
+fisher_info_estimates <- I(theta_estimates, y, X)
+
+# Compute standard errors (square root of the diagonal of the inverse Fisher Information matrix)
+standard_errors <- sqrt(diag(solve(fisher_info_estimates)))
+
+# Compute Wald statistics (estimated parameters / standard errors)
+wald_statistics <- theta_estimates / standard_errors
+```
+## Output the estimated parameters, standard errors, and Wald statistics
+```{r}
+
+theta_estimates  # Estimated parameters
+```
+(1) **Estimated Parameters (`theta_estimates`)**:
+   - **Intercept**: 0.1547  
+   - **Alder (Age)**: -0.0405  
+   - **KonMan (Gender: Male)**: 0.3871  
+   - **UtbildareTrafikskola (Driving School Education)**: 1.0987  
+     This strongly positive coefficient suggests that having education from a driving school greatly increases the log-odds of the outcome.
+```{r}
+standard_errors  # Standard errors
+```
+(2) **Standard Errors (`standard_errors`)**:
+     The standard error for education from a driving school is relatively small compared to the coefficient, indicating strong confidence in this estimate.
+
+### comparison
+```{r}
+
+# Compare with the z-values from model summary
+model_summary <- summary(modell)
+coefficients <- model_summary$coefficients
+z_values <- coefficients[, "z value"]
+
+# Combine Wald statistics and z-values into a dataframe
+comparison_df <- data.frame(Wald_Statistics = wald_statistics, Z_Values = z_values)
+print(comparison_df)
+```
+### Summary
+The results validate that the z-values in the glm output are indeed Wald statistics   calculated by dividing the estimated coefficients by their standard errors.
+   - **Alder (Age)** has a highly significant negative impact on the outcome variable, as indicated by the large negative z-value.
+   - **KonMan (Gender: Male)** shows a positive but moderate effect, with a z-value indicating significance but to a lesser extent compared to other variables.
+   - **UtbildareTrafikskola (Driving School Education)** has the strongest positive effect on the outcome variable, as indicated by the high z-value, implying a very statistically significant impact.
+   - The intercept shows a low z-value, suggesting it is not significantly different from zero and has no substantial impact.
+
+
+# 2.Task2
+```{r}
+# Compute the log-likelihood of the full model
+log_likelihood_full <- l(theta_estimates, y, X)
+
+# Remove the gender variable and fit the reduced model
+X_reduced <- X[, -3]  # Remove the 3rd column, which corresponds to "Kon" (gender variable)
+theta0_reduced <- c(0, 0, 0)  # Initial parameter guess for the reduced model
+
+#modify NR to complete iteration
+NR1 <- function(theta0, niter, y, X, tol = 0.001) {
+  theta <- theta0  # Initialize parameters
+  theta_history <- matrix(NA, niter + 1, length(theta0))  # Store parameter values for each iteration
+  theta_history[1, ] <- theta0  # Store the initial value in history
+  
+  for (i in 1:niter) {
+    score <- S(theta, y, X)  # Compute the score function
+    fisher_info <- I(theta, y, X)  # Compute the Fisher Information matrix
+    theta_new <- theta + solve(fisher_info) %*% score  # Update the parameters
+    
+    # Store the new parameter estimates
+    theta_history[i + 1, ] <- theta_new
+    
+    # Do not stop early based on tolerance
+    theta <- theta_new  # Update theta with the new estimates and continue iterating
+  }
+  
+  cat("Completed after", niter, "iterations\n")
+  return(list(final_theta = theta, theta_history = theta_history))
+}
+eta_reduced <- NR1(theta0 = theta0_reduced, niter = 10, y = y, X = X_reduced)
+log_likelihood_reduced <- l(eta_reduced$final_theta, y, X_reduced)
+
+# Compute the generalized likelihood ratio statistic
+likelihood_ratio_stat <- -2 * (log_likelihood_reduced - log_likelihood_full)
+
+# Compare the squared Wald statistics with the generalized likelihood ratio statistic
+wald_squared <- wald_statistics^2
+
+# Chi-squared test with 1 degree of freedom (since only one parameter was removed)
+df <- 1
+p_value <- pchisq(likelihood_ratio_stat, df, lower.tail = FALSE)
+
+# Output the results
+wald_kon <- summary(modell)$coefficients["KonMan","z value"]
+wald_kon_squared <- wald_kon^2
+print("Wald Statistics Squared:")
+print(wald_squared)
+
+print("Wald Statistics Kon Squared:")
+print(wald_kon_squared)
+
+print("Likelihood Ratio Statistic:")
+print(likelihood_ratio_stat)
+
+print("P-value for Likelihood Ratio Test:")
+print(p_value)
+
+```
+## Conclusion:
+  - The Wald Statistics Kon Squared and Likelihood Ratio Statistic are approximately equal.
+  - The "P-value for Likelihood Ratio Test" is 0.004839648. This p-value indicates that at the 5% significance level, the result of the likelihood ratio test is significant, meaning that the null hypothesis (that the coefficient of Kon is equal to 0) can be rejected. In other words, the variable Kon is significant in the model.
+  
+# 3.Task3
+```{r}
+# Define the score function
+S_null <- function(theta, y, X) {
+  p <- 1 / (1 + exp(-X %*% theta))  # Compute logistic regression probabilities
+  score <- t(X) %*% (y - p)  # Compute the score function
+  return(score)
+}
+
+# Define the Fisher Information matrix function
+I_null <- function(theta, y, X) {
+  p <- 1 / (1 + exp(-X %*% theta))  # Logistic regression probabilities
+  v <- p * (1 - p)  # Variance term
+  D <- diag(as.vector(v))  # Diagonal matrix
+  fisher_info <- t(X) %*% D %*% X  # Compute the Fisher Information matrix
+  return(fisher_info)
+}
+
+# Get y and X from the dataset
+y <- matrix(data_individ$Resultat, ncol = 1)
+
+# Construct the design matrix, including all variables (Alder, Kon, Utbildare)
+X_full <- model.matrix(Resultat ~ Alder + Kon + Utbildare, data = data_individ)
+
+# Assume intercept and gender (Kon) are 0, i.e., use as an offset
+offset_term <- rep(0, nrow(data_individ))  # Offset is set to zero
+
+# Fit the model using the glm() function, only estimating Alder and Utbildare
+reduced_model <- glm(Resultat ~ Alder + Utbildare, 
+                     data = data_individ, 
+                     family = "binomial", 
+                     offset = offset_term)
+
+# Extract the maximum likelihood estimates of the nuisance parameters
+eta_ml <- coef(reduced_model)
+
+# Create the design matrix including only Alder and Utbildare
+X_reduced <- model.matrix(~ Alder + Utbildare, data = data_individ)
+
+# Compute the score function under the null hypothesis
+score_null <- S_null(eta_ml, y, X_reduced)
+
+# Compute the Fisher Information matrix under the null hypothesis
+fisher_info_null <- I_null(eta_ml, y, X_reduced)
+
+# Compute the generalized score statistic TS(θ0)
+score_statistic <- t(score_null) %*% solve(fisher_info_null) %*% score_null
+score_statistic <- as.numeric(score_statistic)  # Convert to numeric type
+
+# Degrees of freedom for the chi-squared distribution is 2 (since two parameters are constrained: intercept and Kon)
+df <- 2
+
+# Compute the p-value based on the chi-squared distribution
+p_value_score_statistic <- pchisq(score_statistic, df, lower.tail = FALSE)
+
+# Output the generalized score statistic and p-value
+print("Generalized Score Statistic:")
+print(score_statistic)
+
+print("P-value for Generalized Score Test:")
+print(p_value_score_statistic)
+
+
+```
+### Summary of the Results:
+
+1. **Generalized Score Statistic (`score_statistic`)**:
+   - The value of the score statistic is extremely small, approximately \(2.91667 \times 10^{-22}\).
+   - This near-zero value indicates that the model fits very well under the null hypothesis. In other words, **removing the intercept and gender (Kon) variables does not significantly affect the model's fit**.
+
+2. **p-value (`p_value_score_statistic`)**:
+   - The calculated p-value is **1**, which means the null hypothesis is not rejected.
+   - In statistical testing, a p-value of 1 implies **no significant reason to reject the null hypothesis**. This means that removing the intercept and gender variables does not lead to any significant degradation in the model's performance.
+
+## Conclusion:
+
+- The combination of a **near-zero generalized score statistic** and a **p-value of 1** indicates that **removing the intercept and gender (Kon) variables does not significantly impact the model’s fit**. The model fits well under the null hypothesis, meaning these two variables have little to no influence on the outcome.
+  
+- **Accepting the null hypothesis** suggests that the intercept and gender variables can be set to zero without worsening the model's performance. In other words, these variables **do not make a significant contribution to the predictive power of the model**.
+
+# 4.Task4
+```{r}
+# Define a grid of theta_Kon values
+theta_Kon_grid <- seq(-2, 2, length.out=100)  
+log_likelihoods <- numeric(length(theta_Kon_grid))
+profile_likelihoods <- numeric(length(theta_Kon_grid))
+
+# list every theta_Kon
+for (i in seq_along(theta_Kon_grid)) {
+  theta_kon_present <- theta_Kon_grid[i]
+  offset_term <- X[, 3] * theta_kon_present
+  model <- glm.fit(x = X[, -3], y = y,
+                       family = binomial(),
+                       offset = offset_term)
+  #log-likelihood for the fitted model
+  log_likelihoods[i] <- sum(dbinom(y, size = 1,
+                                   prob = model$fitted.values,
+                                   log = TRUE))
+  # Profile likelihood
+  profile_likelihoods[i] <- exp(log_likelihoods[i])
+}
+# Plot the profile likelihood
+plot(theta_Kon_grid, profile_likelihoods, type = "l", col = "blue",
+     main = "Profile Likelihood for theta_Kon",
+     xlab = expression(theta[Kon]),
+     ylab = "Profile Likelihood")
+
+# Add a horizontal line for 95% confidence interval level
+max_likelihood <- max(profile_likelihoods)
+ci_level <- max_likelihood * exp(-0.5) # exp(-0.5) is the drop for 95% CI
+abline(h = ci_level, col = "red", lty = 2)
+legend("topright", legend = c("Profile Likelihood", "95% CI Level"),
+       col = c("blue", "red"), lty = 1:2)
+
+coef_estimates <- summary(modell)$coefficients
+
+# Wald intervals for theta_Kon
+theta_kon_estimate <- coef_estimates["KonMan", "Estimate"]
+theta_kon_se <- coef_estimates["KonMan", "Std. Error"]
+wald_left <- theta_kon_estimate - 1.96 * theta_kon_se # 95% confidence interval
+wald_right <- theta_kon_estimate + 1.96 * theta_kon_se
+
+# Add Wald interval lines 
+abline(v = wald_left, col = "green", lty = 2)
+abline(v = wald_right, col = "green", lty = 2)
+legend("topright", legend = c("Profile Likelihood", "95% CI Level", "Wald CI"),
+col = c("blue", "red", "green"), lty = 1:2)
+```
+```{r}
+# Print the Wald interval
+cat("Wald Interval for theta_Kon: [", wald_left, ", ", wald_right, "]\n")
+```
+## Conclusion:
+- The Wald test provides a confidence interval of `[0.1161208, 0.658176]`.
+- The **profile likelihood interval** is more concentrated, suggesting that it might be a more accurate estimation than the Wald interval.
+- This indicates that the estimated coefficient for the gender variable \(\theta_{\text{Kon}}\) is likely to fall between 0.2 and 0.6 with 95% confidence.

@@ -1,0 +1,414 @@
+---
+title: "Jiahui Li_Computer assignment 1"
+output: pdf_document
+date: "2024-09-24"
+---
+# 1.Task1 - Function
+```{r}
+#Likelihood function
+L <- function(theta,y,X) {
+  p <- 1/(1 + exp(-X %*% theta))  # logistic function
+  likelihood <- prod(dbinom(y, size = 1, prob = p, log = FALSE)) # likelihood 
+  return(likelihood)
+}
+
+#Log-likelihood function
+l <- function(theta,y,X){
+  p <- 1/(1+exp(-X %*% theta))
+  log_likelihood <- sum((dbinom(y,size=1,prob=p,log= TRUE)))
+  return(log_likelihood)
+}
+
+#Score function
+S <- function(theta,y,X){
+  p <- 1/(1+exp(-X %*% theta))
+  score <- t(X) %*% (y-p)
+  return(score)
+}
+
+#Fisher Information I function
+I <- function(theta,y,X){
+  p <- 1/(1+exp(-X %*% theta))
+  v <- p * (1-p)
+  D = diag(as.vector(v))
+  fisher_info = t(X) %*% D %*% X
+  return(fisher_info)
+}
+
+#Newton-Raphson
+NR <- function(theta0, niter, y, X, tol = 0.001) {
+  theta <- theta0  # Initialize parameters
+  theta_history <- matrix(NA, niter + 1, length(theta0))  # Store parameter values for each iteration
+  theta_history[1, ] <- theta0  # Store the initial value in history
+  
+  for (i in 1:niter) {
+    score <- S(theta, y, X)  # Compute the score function
+    fisher_info <- I(theta, y, X)  # Compute the Fisher Information matrix
+    theta_new <- theta + solve(fisher_info) %*% score  # Update the parameters
+    
+    # Store the new parameter estimates
+    theta_history[i + 1, ] <- theta_new
+    
+    # Compare the difference between new and old parameter values
+    if (all(abs(theta_new - theta) < tol)) {
+      cat("Converged after", i, "iterations\n")
+      return(list(final_theta = theta_new, theta_history = theta_history[1:(i + 1), ]))
+    }
+    
+    # Update theta with the new estimates and continue iterating
+    theta <- theta_new
+  }
+  
+  cat("Did not fully converge after", niter, "iterations\n")
+  return(list(final_theta = theta, theta_history = theta_history))
+}
+```
+
+# Data preparation
+
+```{r}
+library(RCurl)
+set.seed(0106016) #Change 990101 to your date of birth
+länk <- "https://raw.githubusercontent.com/mskoldSU/MT5003_HT17/master/Projekt/proj_data.csv"
+data_individ <- read.csv(text = getURL(länk))
+idx <- sample(1:nrow(data_individ), 1000)
+data_individ <- data_individ[idx, ]
+save(data_individ, file = "proj_data.Rdata")
+head(data_individ)
+load("proj_data.Rdata")
+modell <- glm(Resultat ~ Alder + Kon + Utbildare, 
+              data = data_individ,
+              family = "binomial")
+summary(modell)
+y <- matrix(data_individ$Resultat, ncol = 1)
+X <- model.matrix(Resultat ~ Alder + Kon + Utbildare, 
+                  data = data_individ)
+head(X)
+head(data_individ[, -1])
+```
+## data glm_iterations
+
+```{r}
+# A model with all explanatory variables is fitted in R
+modell <- glm(Resultat ~ Alder + Kon + Utbildare, 
+              data = data_individ,
+              family = "binomial")
+
+summary(modell)  # Print R's estimated results
+
+# Calculate the difference between NR estimates and glm estimates after each iteration to find convergence
+glm_estimates <- coef(modell)
+
+# Print the number of iterations used by the glm model
+iterations <- modell$iter
+cat("GLM iterations: ", iterations, "\n")
+
+```
+- The model required 4 iterations to converge.
+- Age (Alder) has a negative impact on the outcome, while being male (KonMan) and attending a driving school (UtbildareTrafikskola) significantly increase the probability of the positive outcome.
+- All the predictors are statistically significant except for the intercept, indicating they play an important role in explaining the variation in the outcome.
+
+# 2.Task2
+- Verify your function NR from task 1 by re-computing the parameter estimates provided by R (R actually uses the same type of algorithm). If you supply starting value theta0 = c(0, 0, 0, 0), how many iterations (niter) is needed in order to re-compute Rs estimates with two digits of accuracy?
+```{r}
+
+# Define initial values for theta0 and maximum number of iterations
+theta0 <- c(0, 0, 0, 0)  # Initial parameter values
+niter <- 50  # Maximum number of iterations
+
+# Run the NR algorithm and check if it converges to two decimal places accuracy
+result <- NR(theta0, niter, y, X)
+
+# Print the final estimated values
+print(result$final_theta)
+
+# Print the history of parameter estimates for each iteration
+print(result$theta_history)
+
+# Compare the parameter estimates from each iteration and observe the changes
+for (i in 1:(nrow(result$theta_history) - 1)) {
+  cat("Iteration", i, "->", i + 1, "Difference:\n")
+  print(abs(result$theta_history[i + 1, ] - result$theta_history[i, ]))
+}
+
+```
+
+```{r}
+parameter_names <- c(
+  "Intercept (Parameter 1)", 
+  "Alder (Age) (Parameter 2)", 
+  "Kon (Gender) (Parameter 3)", 
+  "Utbildare (Education Type) (Parameter 4)"
+)
+theta_history <- result$theta_history
+iterations <- 1:nrow(theta_history)
+# Plot the first parameter estimate
+plot(iterations, theta_history[, 1], type = "l", col = "blue", lwd = 2,
+     ylim = range(theta_history), ylab = "Parameter Estimate", xlab = "Iteration",
+     main = "Parameter Estimates over Newton-Raphson Iterations")
+
+# Add the lines for the remaining parameters
+for (i in 2:ncol(theta_history)) {
+  lines(iterations, theta_history[, i], col = i, lwd = 2)
+}
+
+# Add a legend to identify the parameters
+legend("topright", legend = parameter_names,
+       col = 1:ncol(theta_history), lwd = 2)
+```
+### Conclusion:
+
+  - Convergence: The Newton-Raphson algorithm converges in about 4 iterations for all parameters, which is typical for well-behaved models.
+
+
+## Comparson differences between NR and GLM estimates
+```{r}
+# Get final estimates from both methods
+glm_estimates <- coef(modell)  # GLM estimates
+nr_estimates <- result$final_theta  # NR estimates
+
+#Calculate differences between NR and GLM estimates
+diff_estimates <- abs(nr_estimates - glm_estimates)
+# Print results for comparison
+cat("GLM estimates:\n")
+print(glm_estimates)
+
+cat("NR estimates:\n")
+print(nr_estimates)
+
+cat("Differences between NR and GLM estimates:\n")
+print(diff_estimates)
+```
+```{r}
+#Plot the difference
+library(ggplot2)
+# Create a data frame for plotting
+coef_names <- names(glm_estimates)
+comparison_df <- data.frame(
+  Method = rep(c("GLM", "NR"), each = length(glm_estimates)),
+  Coefficient = rep(coef_names, 2),
+  Estimate = c(glm_estimates, nr_estimates)
+)
+# Plot
+ggplot(comparison_df, aes(x = Coefficient, y = Estimate, fill = Method)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Comparison of GLM and NR Estimates", y = "Coefficient Estimate", x = "Coefficient") +
+  theme_minimal()
+
+difference_df <- data.frame(
+  Coefficient = coef_names,
+  Difference = diff_estimates
+)
+```
+```{r}
+ggplot(difference_df, aes(x = Coefficient, y = Difference)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(title = "Absolute Differences between NR and GLM Estimates", 
+       y = "Absolute Difference", x = "Coefficient") +
+  theme_minimal()
+```
+
+# 3.Task3
+```{r}
+theta_hat <- result$final_theta
+
+# Step 1: Calculate the Fisher Information matrix at the final theta estimates
+fisher_info_hat <- I(theta_hat, y, X)
+
+# Step 2: Invert the Fisher Information matrix
+fisher_info_inv <- solve(fisher_info_hat)  # Inverse of the Fisher Information matrix
+
+# Step 3: Extract the diagonal elements and compute the standard errors
+std_errors_nr <- sqrt(diag(fisher_info_inv))  # Square root of the diagonal elements
+
+# Print the NR algorithm's standard errors
+cat("Standard errors from NR algorithm:\n")
+print(std_errors_nr)
+
+# Step 4: Compare with R's standard errors from glm()
+# Get standard errors from R's glm model
+std_errors_glm <- summary(modell)$coefficients[, "Std. Error"]
+
+# Print the standard errors from glm()
+cat("Standard errors from glm():\n")
+print(std_errors_glm)
+
+# Compare the two sets of standard errors
+cat("Difference between NR and glm() standard errors:\n")
+print(abs(std_errors_nr - std_errors_glm))
+
+```
+The output shows the comparison between the standard errors calculated using the Newton-Raphson (NR) algorithm and those provided by R’s `glm()` function. Here's what the results indicate:
+
+### Observations:
+
+- **Standard errors from NR algorithm** and **Standard errors from `glm()`** are nearly identical.
+  - For each coefficient (`Intercept`, `Alder`, `KonMan`, and `UtbildareTrafikskola`), the standard errors computed by the NR algorithm match almost exactly with those from `glm()`.
+
+- **Differences between NR and `glm()` standard errors** are extremely small, on the order of \(10^{-8}\) or \(10^{-9}\). This level of difference is negligible and likely due to minor numerical precision issues rather than any conceptual differences in the calculations.
+
+### Conclusion:
+
+- The **NR algorithm** and **R’s `glm()` function** produce nearly identical standard errors, which suggests that **R uses the same method** (i.e., the inverse of the Fisher Information matrix) to compute the standard errors for maximum likelihood estimates in logistic regression.
+- The tiny differences (on the order of \(10^{-8}\)) are due to floating-point precision limitations inherent in numerical calculations, not due to any methodological differences.
+
+Thus, it is safe to conclude that **R's `glm()` function computes standard errors in a similar way as your Newton-Raphson implementation**, confirming the equivalence of both methods in this context.
+
+# 4.Task4
+## comparison between the Bootstrap standard errors and the GLM standard errors
+### Bootstrap standard errors
+```{r}
+# Number of bootstrap iterations
+B <- 1000
+
+```
+```{r}
+# Step 1: Fit the original model to get the initial coefficients and probabilities
+model_orig <- glm(Resultat ~ Alder + Kon + Utbildare, 
+                  data = data_individ, family = "binomial")
+
+# Extract the original fitted probabilities
+p_hat <- fitted(model_orig)
+
+```
+```{r}
+# Extract the design matrix (X remains fixed during the bootstrap)
+X_fixed <- model.matrix(Resultat ~ Alder + Kon + Utbildare, data = data_individ)
+
+# Placeholder to store the bootstrap estimates
+bootstrap_coefs <- matrix(NA, B, length(coef(model_orig)))
+```
+```{r}
+# Define my own age and sex 
+my_age <- 23  
+my_sex <- "Kvinna"  
+my_educ <- "Privatist"  
+# Create a row for your specific case
+X_individual <- c(1, my_age, ifelse(my_sex == "Male", 1, 0), ifelse(my_educ == "Privatist", 1, 0))
+
+# Placeholder for bootstrap predictions for the individual case
+bootstrap_predictions <- numeric(B)
+
+```
+```{r}
+# Step 2: Run the bootstrap
+set.seed(123)  # For reproducibility
+for (b in 1:B) {
+  # Resample the y-values based on the fitted probabilities
+  y_boot <- rbinom(n = length(p_hat), size = 1, prob = p_hat)
+  
+  # Refit the model with the bootstrapped y-values
+  model_boot <- glm(y_boot ~ Alder + Kon + Utbildare, family = "binomial", data = data_individ)
+  
+  # Store the estimated coefficients from the bootstrapped model
+  bootstrap_coefs[b, ] <- coef(model_boot)
+  
+  # Calculate the predicted probability for the specific individual
+  p_individual <- 1 / (1 + exp(-X_individual %*% coef(model_boot)))  # Logistic function
+  bootstrap_predictions[b] <- p_individual
+}
+
+```
+```{r}
+# Step 3: Calculate the standard errors from the bootstrap
+bootstrap_std_errors <- apply(bootstrap_coefs, 2, sd)
+
+# Step 4: Compare the bootstrap standard errors with those from Task 3
+cat("Bootstrap Standard Errors:\n")
+print(bootstrap_std_errors)
+
+```
+```{r}
+glm_std_errors <- summary(model_orig)$coefficients[, "Std. Error"]
+std_errors_df_1 <- data.frame(
+  Coefficient = c("Intercept", "Alder", "Kon", "Utbildare"),  # Adjust names accordingly
+  GLM = glm_std_errors,
+  Bootstrap = bootstrap_std_errors
+)
+print(std_errors_df_1)
+```
+
+```{r}
+glm_std_errors <- summary(model_orig)$coefficients[, "Std. Error"]
+# Combine the standard errors into a data frame for plotting
+std_errors_df <- data.frame(
+  Method = rep(c("GLM", "Bootstrap"), each = length(glm_std_errors)),
+  Coefficient = rep(names(glm_std_errors), 2),
+  StdError = c(glm_std_errors, bootstrap_std_errors)
+)
+
+ggplot(std_errors_df, aes(x = Coefficient, y = StdError, fill = Method)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Comparison of GLM and Bootstrap Standard Errors",
+       y = "Standard Error", x = "Coefficient") +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+
+Conclusion:
+- The two methods produce almost identical standard errors, indicating good stability and consistency in the model fitting.
+
+- Reason for differences:
+  - These differences arise because GLM calculates standard errors using the Fisher information matrix, while Bootstrap relies on repeated resampling, which is a non-parametric method. The small differences are statistically acceptable since Bootstrap provides a more flexible method that does not assume a specific distribution.
+  - For example, the standard error for Alder in the GLM model is 0.008794838, while in Bootstrap, it's 0.008795902, showing only a minor difference. This indicates that the model parameters are fairly stable across both methods.
+
+## comparison between the Bootstrap standard errors and the NR standard errors
+```{r}
+fisher_info_hat <- I(result$final_theta, y, X)  # Assuming I() is defined and computes the Fisher Information matrix
+fisher_info_inv <- solve(fisher_info_hat)  # Inverse of the Fisher Information matrix
+nr_std_errors <- sqrt(diag(fisher_info_inv))  # NR standard errors from the Fisher Information
+
+std_errors_df_1 <- data.frame(
+  Coefficient = c("Intercept", "Alder", "Kon", "Utbildare"),  # Adjust names accordingly
+  NR = nr_std_errors,
+  Bootstrap = bootstrap_std_errors
+)
+
+# Print the data frame to verify the result
+print(std_errors_df_1)
+```
+```{r}
+#Plotting
+std_errors_df <- data.frame(
+  Method = rep(c("NR", "Bootstrap"), each = length(nr_std_errors)),
+  Coefficient = rep(c("Intercept", "Alder", "Kon", "Utbildare"), 2),  # Adjust names accordingly
+  StdError = c(nr_std_errors, bootstrap_std_errors)
+)
+library(ggplot2)
+
+ggplot(std_errors_df, aes(x = Coefficient, y = StdError, fill = Method)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Comparison of NR and Bootstrap Standard Errors",
+       y = "Standard Error", x = "Coefficient") +
+  theme_minimal() +
+  theme(legend.position = "top")
+```
+Conclusion:
+- The two methods produce almost identical standard errors, indicating good stability and consistency in the model fitting.
+
+## Construct the 95% confidence interval for the individual probability
+```{r}
+# Step 5: Construct the 95% confidence interval for the individual probability
+ci_lower <- quantile(bootstrap_predictions, 0.025)
+ci_upper <- quantile(bootstrap_predictions, 0.975)
+cat("95% Bootstrap Confidence Interval for the individual probability of success:\n")
+cat("Lower bound:", ci_lower, "\n")
+cat("Upper bound:", ci_upper, "\n")
+```
+- This confidence interval suggests that for an individual who is 23 years old, female, and privately educated, the probability of success (i.e., the response variable being 1) is between 51.07% and 65.03% with 95% confidence.
+- This indicates a fairly high probability of success, with a narrow confidence interval, suggesting that the model’s prediction for this individual is relatively stable.
+```{r}
+# Plot the distribution of bootstrap predictions and highlight the confidence interval
+hist(bootstrap_predictions, breaks = 30, main = "Bootstrap Predictions for Individual Probability of Success",
+     xlab = "Predicted Probability", col = "lightblue", border = "white")
+
+# Add vertical lines for the confidence interval bounds
+abline(v = ci_lower, col = "red", lwd = 2, lty = 2)
+abline(v = ci_upper, col = "red", lwd = 2, lty = 2)
+
+# Add a label for the confidence interval on the plot
+legend("topright", legend = c(paste("Lower CI (2.5%):", round(ci_lower, 4)),
+                              paste("Upper CI (97.5%):", round(ci_upper, 4))),
+       col = "red", lwd = 2, lty = 2, cex = 0.8)
+```
+
