@@ -1,0 +1,409 @@
+---
+title: "Survival Analysis with Applications in Medicine: Take-home examination"
+author: "XXX"
+date: "`2025-03-27`"
+output:
+  html_document: default
+  pdf_document: default
+---
+# A: Weibull regression models (3 marks)
+
+## Question 1: Proportional Hazards Model
+
+Given the survival function for the proportional hazards model:
+\[
+S(t|x) = S_0(t)^{\exp(\beta x)}
+\]
+where the baseline survival function \( S_0(t) \) is a Weibull distribution:
+\[
+S_0(t) = \exp(-\lambda t^k)
+\]
+
+Substitute \( S_0(t) \) into the survival function of the proportional hazards model:
+\[
+S(t|x) = \left( \exp(-\lambda t^k) \right)^{\exp(\beta x)} = \exp\left( -\lambda t^k \cdot \exp(\beta x) \right)
+\]
+
+Let \( \lambda' = \lambda \cdot \exp(\beta x) \), then:
+\[
+S(t|x) = \exp\left( -\lambda' t^k \right)
+\]
+
+This is still in the form of a Weibull distribution with scale parameter \( \lambda' \) and shape parameter \( k \). Thus, the survival function \( S(t|x) \) is still in the form of a Weibull distribution.
+
+## Question 2: Accelerated Failure Time Model
+
+Given the survival function for the accelerated failure time model:
+\[
+S(t|x) = S_0(t \cdot \exp(-\beta x))
+\]
+where the baseline survival function \( S_0(t) \) is a Weibull distribution:
+\[
+S_0(t) = \exp(-\lambda t^k)
+\]
+
+Substitute \( S_0(t) \) into the survival function of the accelerated failure time model:
+\[
+S(t|x) = \exp\left( -\lambda (t \cdot \exp(-\beta x))^k \right)
+\]
+
+Simplify:
+\[
+S(t|x) = \exp\left( -\lambda t^k \cdot \exp(-k \beta x) \right)
+\]
+
+Let \( \lambda' = \lambda \cdot \exp(-k \beta x) \), then:
+\[
+S(t|x) = \exp\left( -\lambda' t^k \right)
+\]
+
+This is still in the form of a Weibull distribution with scale parameter \( \lambda' \) and shape parameter \( k \).
+
+
+## Question 3: Relationship Between \( \beta \) and \( \tilde{\beta} \)
+Comparing the survival functions of both models, we get:
+   \[
+   \exp\left( -\lambda t^k \cdot \exp(\beta x) \right) = \exp\left( -\lambda (t \cdot \exp(-\hat{\beta} x))^k \right)
+   \]
+   Simplifying, we obtain:
+   \[
+   \exp(\beta x) = \exp(-k \hat{\beta} x)
+   \]
+   Therefore:
+   \[
+   \beta = -k \hat{\beta}
+   \]
+   That is:
+   \[
+   \hat{\beta} = -\frac{\beta}{k}
+   \]
+
+
+# B: Interval-censored likelihood (3 marks)
+
+## **Question 1: Express log-likelihood formullaly**
+We are given a dataset with time points \( t_i \), left truncation times \( u_i \), and right truncation times \( v_i \) for individual \( i \). The goal is to express the log-likelihood for this data tuple in terms of survival \( S(t) \) and hazard \( h(t) \).
+
+### **(a) In Terms of Survival Function \(S(t)\)**  
+\[
+\log\left( \frac{S(u_i) - S(v_i)}{S(t_i)} \right)
+\]  
+ 
+- Numerator \(S(u_i) - S(v_i)\): Probability of event occurring in \((u_i, v_i]\) (surviving to \(u_i\) but not to \(v_i\)).  
+- Denominator \(S(t_i)\): Conditional on surviving to the left truncation time \(t_i\).
+
+### **(b) In Terms of Hazard Function \(h(t)\)**  
+\[
+\log\left( \frac{S(u_i)}{S(t_i)} \right) + \log\left(1 - \exp\left(-\int_{u_i}^{v_i} h(t) \, dt\right)\right)
+\]  
+ 
+- First term \(\frac{S(u_i)}{S(t_i)}\): Conditional probability of surviving to \(u_i\) given survival to \(t_i\).  
+- Second term \(1 - \exp\left(-\int_{u_i}^{v_i} h(t) \, dt\right)\): Conditional probability of event occurring in \((u_i, v_i]\).
+
+
+## **Question 2: Express these data using the `Surv` function from the `survival` package**
+The Surv function cannot directly accept entry time (the left truncation time \(t_i\)) but can be used to handle interval censored data
+```{r}
+library(survival)
+
+u_i <- c(1, 3, 5, 2)
+v_i <- c(4, 6, 8, 7)
+
+surv_obj <- Surv(u_i, v_i, type = "interval2")
+
+surv_obj
+
+
+```
+# C: Truncated distributions (7 marks)
+## **Question 1: Survival Function for Truncated Distribution**  
+
+The survival function for the left-truncated distribution at \( t_0 \) is:  
+\[
+S_{\text{trunc}}(t \mid t_0) = \begin{cases} 
+\frac{S(t)}{S(t_0)} & \text{if } t \geq t_0, \\
+1 & \text{otherwise}.
+\end{cases}
+\]  
+  
+For \( t \geq t_0 \), the truncated survival function is the original survival probability \( S(t) \), scaled by the probability \( S(t_0) \) that \( T > t_0 \). For \( t < t_0 \), the survival probability is 1 because \( T > t_0 > t\) will definitely achieve.
+
+## **Question 2: Quantile Function for Truncated Distribution**  
+The quantile function \( Q(p \mid t_0) \) for the truncated distribution is:  
+\[
+Q(p \mid t_0) = Q\left(1 - (1 - p) \cdot S(t_0)\right),
+\]  
+where \( Q(p) \) is the quantile function of the original distribution, and \( S(t_0) = P(T > t_0) \).  
+
+**Derivation**:  
+1. From the truncated survival function:  
+\[
+\frac{S(Q(p \mid t_0))}{S(t_0)} = 1 - p \quad \Rightarrow \quad S(Q(p \mid t_0)) = (1 - p) \cdot S(t_0).
+\]  
+2. The original quantile function satisfies \( S(Q(p)) = 1 - p \). Solving for \( Q(p \mid t_0) \), we map the adjusted survival probability to the original quantile function:  
+\[
+Q(p \mid t_0) = S^{-1}\left((1 - p) \cdot S(t_0)\right) = Q\left(1 - (1 - p) \cdot S(t_0)\right).
+\]  
+
+## **Question 3: R Code for 0.4 Quantile of Truncated Log-Normal Distribution**  
+```{r}
+
+mu <- 1
+sigma <- 1.2
+t0 <- 2
+
+S_t0 <- 1 - plnorm(t0, meanlog = mu, sdlog = sigma)
+
+required_survival <- 0.6 * S_t0  # 1 - 0.4 = 0.6
+
+quantile_trunc <- qlnorm(1 - required_survival, meanlog = mu, sdlog = sigma)
+cat("Truncated 0.4 quantile:", quantile_trunc, "\n")
+```
+Steps:  
+1. Calculate \( S(t_0) = P(T > t_0) \) using `plnorm`.  
+2. Adjust the survival probability for truncation: \( 1 - p = 0.6 \Rightarrow \text{required survival} = 0.6 \cdot S(t_0) \).  
+3. Compute the quantile using `qlnorm` with \( 1 - \text{required survival} \).  
+
+## **Question 4: Validation via Sampling**  
+```{r}
+rtrunc_lnorm <- function(n, meanlog, sdlog, t0) {
+    y <- numeric(n)
+    for (i in 1:n) {
+        repeat {
+            x <- rlnorm(1, meanlog, sdlog)
+            if (x >= t0) {
+                y[i] <- x
+                break
+            }
+        }
+    }
+    return(y)
+}
+
+set.seed(42)
+samples <- rtrunc_lnorm(100000, meanlog = mu, sdlog = sigma, t0 = t0)
+quantile_empirical <- quantile(samples, 0.4)
+cat("Empirical 0.4 quantile:", quantile_empirical, "\n")
+```
+The truncated \( 0.4 \)-quantile \( \approx 4.17 \) implies:  
+\[
+P(T \leq 4.17 \mid T > 2) = 0.4,
+\]  
+meaning that 40% of the truncated distribution lies between \( t_0 = 2 \) and \( 4.17 \).  
+
+The small discrepancy (approximately \( 0.15\% \)) confirms that the quantile calculation for the truncated distribution is accurate and the generated samples follow the truncated distribution assumption.  
+
+# D: Cox’s partial likelihood with a time-varying effects (6 marks)
+
+## **Question 1: Partial Likelihood \( L(\beta) \)**  
+The partial likelihood for Cox’s proportional hazards model with time-varying effects is:  
+\[
+L(\beta) = \prod_{i: \delta_i = 1} \frac{\exp\left(\boldsymbol{x}_i(t_i)^T \beta\right)}{\sum_{j \in R(t_i)} \exp\left(\boldsymbol{x}_j(t_i)^T \beta\right)},
+\]  
+where:  
+- \( \delta_i = 1 \) indicates an observed event at time \( t_i \),  
+- \( R(t_i) = \{j : t_j \geq t_i\} \) is the risk set at time \( t_i \),  
+- \( \boldsymbol{x}_i(t_i) \) is the time-varying covariate vector for individual \( i \) at time \( t_i \).  
+
+## **Question 2: Gradient of the Log-Partial-Likelihood**  
+The gradient (score function) for \( \beta_k \) is:  
+\[
+\frac{\partial \log L(\beta)}{\partial \beta_k} = \sum_{i: \delta_i = 1} \left[ x_{i,k}(t_i) - \frac{\sum_{j \in R(t_i)} x_{j,k}(t_i) \exp\left(\boldsymbol{x}_j(t_i)^T \beta\right)}{\sum_{j \in R(t_i)} \exp\left(\boldsymbol{x}_j(t_i)^T \beta\right)} \right],
+\]  
+where \( x_{i,k}(t_i) \) is the \( k \)-th component of the covariate vector \( \boldsymbol{x}_i(t_i) \).  
+
+**Derivation**:  
+1. The log-partial-likelihood is:  
+\[
+\log L(\beta) = \sum_{i: \delta_i = 1} \left[ \boldsymbol{x}_i(t_i)^T \beta - \log\left(\sum_{j \in R(t_i)} \exp\left(\boldsymbol{x}_j(t_i)^T \beta\right)\right) \right].
+\]  
+2. Differentiating with respect to \( \beta_k \):  
+\[
+\frac{\partial \log L}{\partial \beta_k} = \sum_{i: \delta_i = 1} \left[ x_{i,k}(t_i) - \frac{\sum_{j \in R(t_i)} x_{j,k}(t_i) \exp\left(\boldsymbol{x}_j(t_i)^T \beta\right)}{\sum_{j \in R(t_i)} \exp\left(\boldsymbol{x}_j(t_i)^T \beta\right)} \right].
+\]  
+
+## **Question 3: Hazard Ratio for Binary Time-Varying Exposure**  
+For \( \boldsymbol{x}_i(t) = (z_i, z_i t)^T \), the hazard ratio (HR) between exposed (\( z_i = 1 \)) and unexposed (\( z_i = 0 \)) individuals at time \( t \) is:  
+\[
+\text{HR}(t) = \exp\left( \beta_1 + \beta_2 t \right).
+\]  
+
+- The hazard for an exposed individual is:  
+  \[
+  h(t \mid z_i = 1) = h_0(t) \exp\left( \beta_1 \cdot 1 + \beta_2 \cdot (1 \cdot t) \right).
+  \]  
+- The hazard for an unexposed individual is:  
+  \[
+  h(t \mid z_i = 0) = h_0(t) \exp\left( \beta_1 \cdot 0 + \beta_2 \cdot (0 \cdot t) \right) = h_0(t).
+  \]  
+- The hazard ratio is:  
+  \[
+  \text{HR}(t) = \frac{h(t \mid z_i = 1)}{h(t \mid z_i = 0)} = \exp\left( \beta_1 + \beta_2 t \right).
+  \]  
+
+## **Question 4: Regression Model and Parameter Interpretation**
+```{r}
+library(survival)
+library(biostat3)
+transform(biostat3::colon, stage=relevel(stage,"Localised")) |>
+    coxph(Surv(surv_mm,status=="Dead: cancer")~stage+tt(stage), data=_,
+          tt=function(x,t,...) (x=="Distant")*t/12) |>
+    summary()
+```
+
+The model can be written as:
+
+\[
+\text{Hazard}(t) = \exp(\beta_0 + \beta_1 \cdot \text{stageUnknown} + \beta_2 \cdot \text{stageRegional} + \beta_3 \cdot \text{stageDistant} + \beta_4 \cdot \text{tt(stage)})
+\]
+
+Where:
+
+- \( \text{stageUnknown} \), \( \text{stageRegional} \), and \( \text{stageDistant} \) are categorical variables representing different stages of cancer, with "Localised" as the reference group.
+- \( \text{tt(stage)} \) represents the time-varying effect for the "Distant" cancer stage.
+
+### **Interpretation of the Parameters:**
+
+| Coefficient       | Value    | exp(coef) | Interpretation                                                                                                                                 |
+|-------------------|----------|-----------|-------------------------------------------------------------------------------------------------------------------------------------------------|
+| `stageUnknown`    | 0.939    | 2.558     | Patients with "Unknown" stage have 2.56 times higher baseline hazard compared to "Localised" (at \( t = 0 \)).                                |
+| `stageRegional`   | 0.803    | 2.232     | Patients with "Regional" stage have 2.23 times higher baseline hazard compared to "Localised" (at \( t = 0 \)).                              |
+| `stageDistant`    | 2.219    | 9.198     | Patients with "Distant" stage have 9.20 times higher baseline hazard compared to "Localised" (at \( t = 0 \)).                               |
+| `tt(stage)`       | -0.123   | 0.884     | For "Distant" stage patients, the hazard ratio decreases by 11.6% per year (\( \text{HR}_{\text{year}} = 0.884 \)), indicating diminishing risk over time. |
+
+1. **Baseline Hazard**:  "Distant" stage patients have the highest initial risk (HR = 9.2), followed by "Unknown" (HR = 2.56) and "Regional" (HR = 2.23).  
+2. **Time-Varying Effect**:  The hazard ratio for "Distant" stage decreases over time (\( \beta_4 = -0.123 \)), suggesting that the risk difference between "Distant" and "Localised" narrows as patients survive longer.  
+3. **Model Fitness**:  All p values are less than 0.001, which shows that the model has a good fitness and all variables have significant effects.  
+
+
+# **E: Data analysis of a randomised controlled trial for hormonal treatment of breast cancer patients in Germany (9 marks)**
+
+## **Question 1:Kaplan-Meier Curves by Randomisation Arm**
+```{r}
+library(survival)
+data("brcancer", package = "rstpm2")
+fit <- survfit(Surv(rectime, censrec) ~ hormon, data = brcancer)
+plot(fit, 
+     xlab = "Time to Breast Cancer Recurrence (Months)", 
+     ylab = "Survival Probability", 
+     main = "Kaplan-Meier Curves by Randomisation Arm",
+     col = c("blue", "red"),  
+     lty = 1:2)  
+legend("topright", 
+       legend = c("No Hormonal Treatment", "Hormonal Treatment"),
+       col = c("blue", "red"), 
+       lty = 1:2, 
+       title = "Treatment Arm")
+
+survdiff(Surv(rectime, censrec) ~ hormon, data = brcancer) 
+
+
+```
+
+Typically, the curve for the 'hormon == 1' group should show a higher survival probability compared to the 'hormon == 0' group, indicating that hormonal treatment is beneficial in reducing the risk of recurrence. And since the p-value is less than 0.05, we can conclude that there is a statistically significant difference in survival between the two groups. This suggests that the hormonal treatment has a significant effect on the time to breast cancer recurrence.
+
+
+## **Question 2:Fit a Cox Regression Model Adjusting for Hormonal Treatment**
+```{r}
+
+cox_model <- coxph(Surv(rectime, censrec) ~ hormon, data = brcancer)
+
+summary(cox_model)
+
+```
+The Cox proportional hazards model is defined as:  
+\[
+h(t | \text{hormon}) = h_0(t) \exp(\beta \cdot \text{hormon}),
+\]  
+where:  
+- \( h_0(t) \) is the baseline hazard function (time-dependent),  
+- \( \beta \) is the regression coefficient for hormonal treatment,  
+- \( \exp(\beta) \) represents the hazard ratio (HR) for hormonal treatment.  
+
+
+Conclusion:
+
+- Hormonal treatment is associated with a significant reduction in the risk of breast cancer recurrence. Specifically, patients who received hormonal treatment had about 30.5% lower risk of recurrence compared to those who did not, as indicated by the hazard ratio of 0.6949.
+- The results are statistically significant with a p-value of 0.0036, indicating that the observed effect is unlikely to be due to chance.
+- The confidence interval for the hazard ratio (0.5438 to 0.8879, does not include 1) suggests that the protective effect of hormonal treatment on recurrence risk is robust and consistent.
+- Although the concordance index (0.543) is relatively low, the model still indicates that hormonal treatment has a meaningful impact on survival times.
+
+## **Question 3: Test for Proportional Hazards by Treatment Arm**
+
+To check whether the proportional hazards assumption holds for the treatment arms, we can use the **Schoenfeld residuals test**. This test evaluates whether the proportional hazards assumption is valid, i.e., if the hazard ratio is constant over time.
+```{r}
+
+cox_zph <- cox.zph(cox_model)
+
+cox_zph
+
+```
+The p-value for the test is larger than 0.05, we do not have evidence against the proportional hazards assumption, indicating that the assumption is valid.
+
+## **Question 4: Graphical Evaluation of Proportional Hazards**
+
+To graphically evaluate whether the proportional hazards assumption holds, we can use Schoenfeld residual plots. These plots will show whether the residuals are random (which indicates the proportional hazards assumption holds) or if there is a trend (which would indicate a violation).
+
+```{r}
+plot(cox_zph)
+
+```
+
+Overall, the residuals in the plot fluctuate around the zero baseline. The overall distribution of points does not exhibit any clear patterns or systematic changes. In other words, the effect of hormonal treatment does not appear to significantly change over time, and no clear increasing or decreasing trend is observed.
+
+Therefore, based on the graphical observation, we can conclude that the effect of hormonal treatment on survival risk is consistent with the proportional hazards assumption. In other words, the hazard ratio for hormonal treatment remains relatively stable throughout the follow-up period, with no significant time-dependent variation observed.
+
+# **F: Analysis plan for a randomised controlled trial (5 marks)**
+## **Question 1: Analysis Plan Outline**
+
+#### **Estimand of Interest:**
+The estimand of interest is the cause-specific survival probability of patients with colorectal cancer who have the particular genetic signature, comparing those who receive low-dose aspirin (experimental arm) with those who do not (control arm) over a five-year period of follow-up. Specifically, we are interested in estimating the cause-specific hazard ratio for colorectal cancer-related death between the two groups (aspirin vs. control).
+
+#### **Estimator for the Estimand:**
+The appropriate estimator for the cause-specific hazard ratio is the Cox proportional hazards model. This model will allow us to estimate the relative risk of death from colorectal cancer for patients on low-dose aspirin compared to those not on aspirin, adjusting for any potential confounding factors. The Cox model is widely used in survival analysis because it does not require the assumption of the underlying hazard function and is well-suited for handling right-censored survival data.
+
+The model will take the form:
+ \[
+  h(t | \text{Aspirin}) = h_0(t) \exp(\beta \cdot \text{Aspirin}),
+  \]  
+  where \(\exp(\beta)\) is the HR for aspirin.  
+
+#### **Assessing Potential Confounding:**
+To assess potential confounding, we will first identify key variables that could influence both treatment allocation and the outcome, such as age, sex, comorbidities, baseline tumor stage, and other biomarkers. And then use balance tests (e.g., t-tests, chi-squared tests) on baseline characteristics to ensure that randomization was successful in balancing these factors across the two arms.
+  
+#### **Modeling for Potential Confounding:**
+We will use a multivariable Cox proportional hazards model that includes confounding factors such as age, sex, baseline tumor stage, comorbidities, and other relevant biomarkers, in addition to the treatment indicator (low-dose aspirin vs. control). Adjusting for these confounders will help isolate the effect of low-dose aspirin on colorectal cancer-specific survival. And the Cox proportional hazards model is well-suited for analyzing time-to-event data with censoring and allows for easy incorporation of covariates, which helps to control for confounding.
+
+  \[
+  h(t | \text{Aspirin}, \boldsymbol{X}) = h_0(t) \exp(\beta \cdot \text{Aspirin} + \boldsymbol{\gamma}^T \boldsymbol{X}),
+  \]  
+
+The full model might include covariates X for both continuous variables  (e.g., age) and categorical variables (e.g., tumor stage, sex). The model will account for these factors by incorporating them as covariates.
+
+#### **Assessing for Proportional Hazards:**
+To assess whether the proportional hazards assumption holds, we will test the proportional hazards assumption using schoenfeld residuals because they offer a direct, statistical test for this assumption and can be easily interpreted visually. If the residuals show no significant trend with time, this supports the proportional hazards assumption. And also, schoenfeld residual plots can be used to confirm that there is no time-dependent trend for the treatment effect.
+  
+If the assumption is violated (e.g., there is a significant trend in residuals), we may consider adding time-varying covariates or using stratified Cox models to adjust for this.
+
+#### **Tables and Figures:**
+
+- **Tables**:
+  1. **Baseline Characteristics**: A table displaying the baseline characteristics of patients in both the aspirin and control groups, including variables such as age, sex, tumor stage, and comorbidities. This will ensure that the groups are comparable and will help identify any residual imbalances.
+  2. **Survival Analysis Results**: A table presenting the cause-specific hazard ratios (with confidence intervals) from the Cox regression model, along with p-values for testing the effect of low-dose aspirin compared to the control arm.
+  
+- **Figures**:
+  1. **Kaplan-Meier Survival Curves**: Separate Kaplan-Meier curves for cause-specific survival (death due to colorectal cancer) for the aspirin and control groups. This will provide a visual representation of the survival difference between the two groups.
+  2. **Schoenfeld Residuals Plot**: A plot of Schoenfeld residuals to visually inspect for the proportional hazards assumption.
+  3. **Forest Plot**: A forest plot showing hazard ratios and their 95% confidence intervals for low-dose aspirin versus control, possibly stratified by key covariates.
+
+## **Question 2:Non-Collapsibility Discussion**
+
+Non-collapsibility refers to the phenomenon where an estimator for a treatment effect changes depending on whether or not the model accounts for certain covariates. In other words, the treatment effect estimated by a marginal model may not equal the effect estimated by a conditional model when covariates are adjusted for. This can occur in the presence of confounding.
+
+For the cause-specific hazard ratio estimated by the Cox model, non-collapsibility is not an issue. The Cox model is a conditional estimator that adjusts for confounders, and the estimated hazard ratio for treatment (aspirin vs. control) is based on the conditional distribution of survival time, given the covariates. In this case, the hazard ratio for the experimental treatment is meaningful and interpretable, even after adjusting for covariates like age, sex, and tumor stage. The model assumes the treatment effect is constant within each subgroup defined by the covariates, so no non-collapsibility issues arise when covariates are appropriately adjusted for. However, if the treatment effect were to be estimated without adjusting for confounders (e.g., by a simple crude comparison), it might be biased due to the non-collapsibility of the effect. Therefore, it is crucial to adjust for confounders in the model, as we plan to do with the Cox model.
+
+So non-collapsibility does not pose a problem for the Cox proportional hazards model, as long as potential confounders are included and appropriately adjusted for in the model. The treatment effect estimated by the model reflects the true causal relationship between aspirin and survival, conditional on the covariates.
+
+
+## **Declare whether and how you used generative artificial intelligence in the examination**
+In this assignment, I acknowledge that I used AI tools, Deepseek and GPT, to provide initial guidance for the task and to clarify any knowledge gaps in the course materials. However, I found that the answers were not always satisfactory, so I needed to further verify or correct them using literature and authoritative videos. This process helped me gain a better understanding and approach the task more effectively. Finally, I used GPT to refine the structure and sentence patterns of my interpretation, making it more readable, and also asked for further insights to deepen my reflection on the report.
